@@ -314,10 +314,15 @@ function renderEpisodeList(series, seasonNum) {
 }
 
 
+let vodListenersInitialized = false;
+
 /**
  * Sets up all event listeners for the VOD page and its modals.
  */
 function setupVodEventListeners() {
+    if (vodListenersInitialized) return;
+    vodListenersInitialized = true;
+
     // --- Filter Bar Listeners ---
     UIElements.vodTypeAll.addEventListener('click', () => {
         UIElements.vodTypeAll.classList.add('active');

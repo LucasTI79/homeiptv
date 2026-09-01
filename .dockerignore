@@ -13,3 +13,4 @@ docker-compose.yml
 
 # Persistent data directory (should be mounted as a volume, not copied)
 viniplay-data
+viniplay-dvr

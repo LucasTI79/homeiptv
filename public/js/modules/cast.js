@@ -9,6 +9,35 @@ import { stopStream } from './api.js';
 
 const APPLICATION_ID = 'CC1AD845'; // Default Media Receiver App ID
 
+// The Chromecast receiver fetches media URLs itself, directly over the LAN -
+// it does NOT go through the sender's browser, so it is not bound by the
+// sender page's mixed-content rules. Point it straight at the app's own
+// plain-HTTP port instead of the (possibly self-signed HTTPS) page origin,
+// so the TV never has to validate a certificate it doesn't trust.
+const CAST_MEDIA_PORT = 8998;
+
+/**
+ * Converts a stream URL (relative, or absolute on our own origin) into the
+ * URL the Chromecast receiver should fetch: our own plain-HTTP app port,
+ * never the HTTPS page origin. External provider URLs are passed through.
+ */
+export function toCastMediaUrl(streamUrl) {
+    if (!streamUrl.startsWith('http')) {
+        return `http://${window.location.hostname}:${CAST_MEDIA_PORT}${streamUrl}`;
+    }
+    try {
+        const parsed = new URL(streamUrl);
+        if (parsed.hostname === window.location.hostname) {
+            parsed.protocol = 'http:';
+            parsed.port = String(CAST_MEDIA_PORT);
+            return parsed.toString();
+        }
+    } catch (e) {
+        // Not a parseable URL; fall through and use it as-is.
+    }
+    return streamUrl;
+}
+
 export const castState = {
     isAvailable: false,
     isCasting: false,
@@ -17,10 +46,23 @@ export const castState = {
     playerController: null,
     currentMedia: null,
     currentCastStreamUrl: null, // Track the current Cast stream URL for cleanup
+    // VOD seek support: our /stream endpoint re-encodes from scratch on every
+    // request, so the receiver's own currentTime only reflects elapsed time
+    // within the CURRENT ffmpeg segment. To seek we add that elapsed time to
+    // the offset the segment itself started at, then reload from the new sum.
+    currentIsVod: false,
+    currentVodBaseUrl: null,
+    currentVodSeekBase: 0,
+    currentVodDuration: null, // Known real duration (seconds), preserved across seeks
+    currentVodName: null,
+    currentVodLogo: null,
     localPlayerState: {
         streamUrl: null,
         name: null,
-        logo: null
+        logo: null,
+        isVod: false,
+        originalUrl: null,
+        userAgentId: null
     }
 };
 
@@ -56,13 +98,17 @@ async function stopCastStream(streamUrl) {
  * @param {string} logo - The URL for the channel's logo.
  * @param {string} originalUrl - The original stream URL (for stopping server stream).
  * @param {string} profileId - The profile ID (for stopping server stream).
+ * @param {boolean} isVod - Whether this is VOD content (enables seek) vs. a live channel.
+ * @param {string} userAgentId - The user agent ID used for playback (for duration probing).
  */
-export function setLocalPlayerState(streamUrl, name, logo, originalUrl = null, profileId = null) {
+export function setLocalPlayerState(streamUrl, name, logo, originalUrl = null, profileId = null, isVod = false, userAgentId = null) {
     castState.localPlayerState.streamUrl = streamUrl;
     castState.localPlayerState.name = name;
     castState.localPlayerState.logo = logo;
+    castState.localPlayerState.userAgentId = userAgentId;
     castState.localPlayerState.originalUrl = originalUrl;
     castState.localPlayerState.profileId = profileId;
+    castState.localPlayerState.isVod = isVod;
     console.log(`[CAST] Local player state updated: ${name}`);
 }
 
@@ -88,6 +134,10 @@ function initializeCastApi() {
     castState.playerController.addEventListener(
         cast.framework.RemotePlayerEventType.IS_CONNECTED_CHANGED,
         handleRemotePlayerConnectionChange
+    );
+    castState.playerController.addEventListener(
+        cast.framework.RemotePlayerEventType.IS_PAUSED_CHANGED,
+        updatePlayerUI
     );
 }
 
@@ -151,12 +201,15 @@ function handleSessionStateChange(event) {
                     }
                 }
 
-                const { streamUrl, name, logo } = castState.localPlayerState;
-                // CRITICAL FIX: Convert relative URLs to absolute for Chromecast
-                const absoluteUrl = streamUrl.startsWith('http')
-                    ? streamUrl
-                    : `${window.location.origin}${streamUrl}`;
-                loadMedia(absoluteUrl, name, logo);
+                const { streamUrl, name, logo, isVod, userAgentId } = castState.localPlayerState;
+                const absoluteUrl = toCastMediaUrl(streamUrl);
+                if (isVod && originalUrl) {
+                    probeVodDuration(originalUrl, userAgentId).then(duration => {
+                        loadMedia(absoluteUrl, name, logo, isVod, 0, duration);
+                    });
+                } else {
+                    loadMedia(absoluteUrl, name, logo, isVod);
+                }
             }
             break;
         case cast.framework.SessionState.SESSION_ENDED:
@@ -169,6 +222,9 @@ function handleSessionStateChange(event) {
             castState.session = null;
             castState.isCasting = false;
             castState.currentMedia = null;
+            castState.currentIsVod = false;
+            castState.currentVodBaseUrl = null;
+            castState.currentVodSeekBase = 0;
             showNotification('Casting session ended.', false, 4000);
             updatePlayerUI();
             break;
@@ -176,6 +232,9 @@ function handleSessionStateChange(event) {
             castState.session = null;
             castState.isCasting = false;
             castState.currentMedia = null;
+            castState.currentIsVod = false;
+            castState.currentVodBaseUrl = null;
+            castState.currentVodSeekBase = 0;
             updatePlayerUI();
             break;
     }
@@ -195,6 +254,7 @@ function updatePlayerUI() {
     const videoElement = UIElements.videoElement;
     const castStatusDiv = UIElements.castStatus;
     const castBtn = UIElements.castBtn;
+    const castControls = UIElements.castControls;
 
     if (castState.isCasting && castState.player.isConnected) {
         videoElement.classList.add('hidden');
@@ -207,6 +267,19 @@ function updatePlayerUI() {
         // Add class to our custom button to indicate connected state
         if (castBtn) castBtn.classList.add('cast-connected');
 
+        // Playback controls: play/pause always available once media is loaded,
+        // seek only makes sense for VOD (live channels have nothing to seek to).
+        if (castControls) {
+            const hasMedia = !!castState.player.mediaInfo;
+            castControls.classList.toggle('hidden', !hasMedia);
+            castControls.classList.toggle('flex', hasMedia);
+            if (UIElements.castRewindBtn) UIElements.castRewindBtn.classList.toggle('hidden', !castState.currentIsVod);
+            if (UIElements.castForwardBtn) UIElements.castForwardBtn.classList.toggle('hidden', !castState.currentIsVod);
+            if (UIElements.castPlayPauseBtn) {
+                UIElements.castPlayPauseBtn.textContent = castState.player.isPaused ? '▶' : '⏸';
+            }
+        }
+
     } else {
         videoElement.classList.remove('hidden');
         castStatusDiv.classList.add('hidden');
@@ -214,17 +287,50 @@ function updatePlayerUI() {
 
         // Remove connected state class
         if (castBtn) castBtn.classList.remove('cast-connected');
+        if (castControls) {
+            castControls.classList.add('hidden');
+            castControls.classList.remove('flex');
+        }
     }
 }
 
 
 /**
+ * Probes a VOD source's real duration server-side (ffprobe), so the Cast
+ * receiver can show accurate progress instead of estimating from whatever
+ * it has buffered so far. Resolves to null (not rejects) on any failure so
+ * callers can just proceed without a duration.
+ * @param {string} sourceUrl - The original, un-proxied VOD content URL.
+ * @param {string} userAgentId - User agent ID to probe with (some providers require it).
+ */
+export async function probeVodDuration(sourceUrl, userAgentId) {
+    try {
+        const params = new URLSearchParams({ url: sourceUrl });
+        if (userAgentId) params.set('userAgentId', userAgentId);
+        // Don't let a slow/unreachable provider stall the cast start for long.
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
+        const response = await fetch(`/api/vod/duration?${params}`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!response.ok) return null;
+        const { duration } = await response.json();
+        return typeof duration === 'number' && duration > 0 ? duration : null;
+    } catch (error) {
+        console.warn('[CAST] Duration probe failed, proceeding without it:', error);
+        return null;
+    }
+}
+
+/**
  * Loads a media stream onto the connected Cast device.
- * @param {string} url - The URL of the stream.
+ * @param {string} url - The URL of the stream (without startTime baked in).
  * @param {string} name - The name of the channel.
  * @param {string} logo - The URL of the channel's logo.
+ * @param {boolean} isVod - Whether this is VOD content (enables seek controls).
+ * @param {number} seekSeconds - Absolute position (seconds) to start the VOD from.
+ * @param {number|null} durationSeconds - Known real duration, if probed.
  */
-export async function loadMedia(url, name, logo) {
+export async function loadMedia(url, name, logo, isVod = false, seekSeconds = 0, durationSeconds = null) {
     if (!castState.session) {
         showNotification('Not connected to a Cast device.', true);
         return;
@@ -247,6 +353,14 @@ export async function loadMedia(url, name, logo) {
             castUrl = `${url}${separator}profileId=${activeCastProfileId}`;
             console.log(`[CAST] Added ${activeCastProfileId} profile`);
         }
+    }
+
+    // Seeking re-encodes from a new offset server-side (see /stream's `startTime`
+    // handling), since the piped ffmpeg output has no byte-range seek support.
+    if (isVod && seekSeconds > 0) {
+        const separator = castUrl.includes('?') ? '&' : '?';
+        castUrl = `${castUrl}${separator}startTime=${seekSeconds}`;
+        console.log(`[CAST] Requesting VOD start offset: ${seekSeconds}s`);
     }
 
     // Generate and append cast authentication token
@@ -277,7 +391,17 @@ export async function loadMedia(url, name, logo) {
 
     // Use video/mp4 instead of video/mp2t for Chromecast compatibility
     const mediaInfo = new chrome.cast.media.MediaInfo(castUrl, 'video/mp4');
-    mediaInfo.streamType = chrome.cast.media.StreamType.LIVE;
+    // BUFFERED enables the receiver's native on-TV seek bar/controls for VOD.
+    // Our /stream endpoint pipes a fresh, fragmented ffmpeg encode with no
+    // duration metadata of its own (empty_moov, unbounded output) - every
+    // load/seek restarts encoding from 0, so we tell the receiver the
+    // duration of what's LEFT from this offset (total - seekSeconds), not
+    // the full episode length. Without a probed duration it falls back to
+    // the receiver's own (wrong, growing) estimate.
+    mediaInfo.streamType = isVod ? chrome.cast.media.StreamType.BUFFERED : chrome.cast.media.StreamType.LIVE;
+    if (isVod && typeof durationSeconds === 'number' && durationSeconds > 0) {
+        mediaInfo.duration = Math.max(1, durationSeconds - seekSeconds);
+    }
     mediaInfo.metadata = new chrome.cast.media.TvShowMediaMetadata();
     mediaInfo.metadata.title = name;
     if (logo) {
@@ -291,6 +415,12 @@ export async function loadMedia(url, name, logo) {
             console.log('[CAST] Media loaded successfully.');
             castState.currentMedia = castState.session.getMediaSession();
             castState.currentCastStreamUrl = url; // Track for cleanup
+            castState.currentIsVod = isVod;
+            castState.currentVodBaseUrl = url;
+            castState.currentVodSeekBase = seekSeconds;
+            castState.currentVodDuration = durationSeconds;
+            castState.currentVodName = name;
+            castState.currentVodLogo = logo;
             updatePlayerUI();
         },
         (errorCode) => {
@@ -298,6 +428,33 @@ export async function loadMedia(url, name, logo) {
             showNotification('Failed to load media on Cast device. Check console.', true);
         }
     );
+}
+
+/**
+ * Toggles play/pause on the currently casting device.
+ */
+export function toggleCastPlayPause() {
+    if (castState.playerController) {
+        castState.playerController.playOrPause();
+    }
+}
+
+/**
+ * Seeks VOD content by reloading the stream from a new absolute offset.
+ * Our /stream endpoint re-encodes from scratch each request (no byte-range
+ * seek support in the piped ffmpeg output), so "seeking" means: figure out
+ * where we actually are (segment start offset + elapsed time in that
+ * segment), add the delta, and start a fresh transcode from there.
+ * @param {number} deltaSeconds - Positive to skip forward, negative to rewind.
+ */
+export async function seekCastMedia(deltaSeconds) {
+    if (!castState.isCasting || !castState.currentIsVod || !castState.currentVodBaseUrl) {
+        return;
+    }
+    const elapsedInSegment = castState.player?.currentTime || 0;
+    const newAbsolute = Math.max(0, castState.currentVodSeekBase + elapsedInSegment + deltaSeconds);
+    console.log(`[CAST] Seeking ${deltaSeconds > 0 ? '+' : ''}${deltaSeconds}s -> absolute ${newAbsolute.toFixed(1)}s`);
+    await loadMedia(castState.currentVodBaseUrl, castState.currentVodName, castState.currentVodLogo, true, newAbsolute, castState.currentVodDuration);
 }
 
 /**

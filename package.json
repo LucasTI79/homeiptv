@@ -3,6 +3,11 @@
   "version": "main_0.11",
   "description": "A simple IPTV player with server-side storage and user authentication.",
   "main": "server.js",
+  "workspaces": [
+    "backend",
+    "frontend",
+    "shared/types"
+  ],
   "scripts": {
     "start": "node server.js"
   },

@@ -9,6 +9,8 @@ const crypto = require('crypto');
 const { spawn, exec } = require('child_process');
 const http = require('http');
 const https = require('https');
+const dns = require('dns');
+const net = require('net');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
@@ -32,7 +34,12 @@ const XtreamClient = require('./xtreamClient');
 const activeRedirectStreams = new Map(); // Tracks live redirect streams for the admin UI
 
 const app = express();
-const port = 8998;
+// Trust X-Forwarded-For only when the immediate TCP peer is a loopback/private
+// address (i.e. the Caddy reverse proxy on the same host/docker network).
+// Without this, any external client can forge X-Forwarded-For and get treated
+// as a trusted LAN request by allowLocalOrAuth below.
+app.set('trust proxy', 'loopback, linklocal, uniquelocal');
+const port = process.env.PORT || 8998;
 const saltRounds = 10;
 // Initialize global variables at the top-level scope
 let notificationCheckInterval = null;
@@ -59,9 +66,22 @@ const runningFFmpegProcesses = new Map(); // Stores PIDs of running ffmpeg recor
 const activeStreamProcesses = new Map();
 const STREAM_INACTIVITY_TIMEOUT = 30000; // 30 seconds to kill an inactive stream process
 
-// --- Configuration ---
-const DATA_DIR = '/data';
-const DVR_DIR = '/dvr';
+// --- Configuration & Directory Resolution ---
+function getResolvedDir(envVar, dockerPath, localRelativePath) {
+    if (process.env[envVar]) return path.resolve(process.env[envVar]);
+    if (fs.existsSync(dockerPath)) {
+        try {
+            fs.accessSync(dockerPath, fs.constants.W_OK);
+            return dockerPath;
+        } catch {
+            // Not writable without root/sudo, fallback to local project folder
+        }
+    }
+    return path.join(__dirname, localRelativePath);
+}
+
+const DATA_DIR = getResolvedDir('DATA_DIR', '/data', 'viniplay-data');
+const DVR_DIR = getResolvedDir('DVR_DIR', '/dvr', 'viniplay-dvr');
 const LOGS_DIR = path.join(DATA_DIR, 'logs'); // NEW: Log management directory
 const VAPID_KEYS_PATH = path.join(DATA_DIR, 'vapid.json');
 const SOURCES_DIR = path.join(DATA_DIR, 'sources');
@@ -76,6 +96,21 @@ const VOD_SERIES_JSON_PATH = path.join(DATA_DIR, 'vod_series.json'); // New
 const SETTINGS_PATH = path.join(DATA_DIR, 'settings.json');
 
 console.log(`[INIT] Application starting. Data directory: ${DATA_DIR}, Public directory: ${PUBLIC_DIR}`);
+
+// Ensure the data and dvr directories exist BEFORE accessing any files.
+try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR, { recursive: true });
+    if (!fs.existsSync(SOURCES_DIR)) fs.mkdirSync(SOURCES_DIR, { recursive: true });
+    if (!fs.existsSync(DVR_DIR)) fs.mkdirSync(DVR_DIR, { recursive: true });
+    if (!fs.existsSync(RAW_CACHE_DIR)) fs.mkdirSync(RAW_CACHE_DIR, { recursive: true });
+    if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
+    if (!fs.existsSync(IMAGE_CACHE_DIR)) fs.mkdirSync(IMAGE_CACHE_DIR, { recursive: true });
+    console.log(`[INIT] All required directories checked/created.`);
+} catch (mkdirError) {
+    console.error(`[INIT] FATAL: Failed to create necessary directories: ${mkdirError.message}`);
+    process.exit(1);
+}
 
 // --- Automatic VAPID Key Generation ---
 let vapidKeys = {};
@@ -96,21 +131,6 @@ try {
     console.error('[Push] FATAL: Could not load or generate VAPID keys.', error);
 }
 
-// Ensure the data and dvr directories exist.
-try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR, { recursive: true });
-    if (!fs.existsSync(SOURCES_DIR)) fs.mkdirSync(SOURCES_DIR, { recursive: true });
-    if (!fs.existsSync(DVR_DIR)) fs.mkdirSync(DVR_DIR, { recursive: true });
-    if (!fs.existsSync(RAW_CACHE_DIR)) fs.mkdirSync(RAW_CACHE_DIR, { recursive: true });
-    if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
-    if (!fs.existsSync(IMAGE_CACHE_DIR)) fs.mkdirSync(IMAGE_CACHE_DIR, { recursive: true });
-    console.log(`[INIT] All required directories checked/created.`);
-} catch (mkdirError) {
-    console.error(`[INIT] FATAL: Failed to create necessary directories: ${mkdirError.message}`);
-    process.exit(1);
-}
-
 
 // --- Database Setup ---
 const db = new sqlite3.Database(DB_PATH, (err) => {
@@ -119,7 +139,10 @@ const db = new sqlite3.Database(DB_PATH, (err) => {
         process.exit(1);
     } else {
         console.log("[DB] Connected to the SQLite database.");
+        db.configure("busyTimeout", 15000);
         db.serialize(() => {
+            db.run("PRAGMA journal_mode = WAL;");
+            db.run("PRAGMA synchronous = NORMAL;");
             db.run(`CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT, isAdmin INTEGER DEFAULT 0, canUseDvr INTEGER DEFAULT 0, allowed_sources TEXT)`, (err) => {
                 if (err) {
                     console.error("[DB] Error creating 'users' table:", err.message);
@@ -385,8 +408,10 @@ app.use(
 );
 
 app.use((req, res, next) => {
-    // Add client IP to the request object for logging
-    req.clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    // Add client IP to the request object for logging.
+    // req.ip is Express-computed and respects the 'trust proxy' setting above,
+    // so it can't be spoofed by a client-supplied X-Forwarded-For header.
+    req.clientIp = req.ip;
 
     if (req.path === '/api/events') {
         return next();
@@ -1042,6 +1067,12 @@ function writeToLogFile(message) {
         if (!currentLogStream) {
             const logPath = getCurrentLogFilePath();
             currentLogStream = fs.createWriteStream(logPath, { flags: 'a' });
+            currentLogStream.on('error', (err) => {
+                if (console.error.__original) {
+                    console.error.__original(`[LOG_SYSTEM] Write stream error for ${logPath}: ${err.message}`);
+                }
+                currentLogStream = null;
+            });
 
             // Get current file size if file exists
             if (fs.existsSync(logPath)) {
@@ -2325,6 +2356,8 @@ app.get('/api/vod/library', requireAuth, async (req, res) => {
     }
 });
 
+const pendingSeriesFetches = new Map();
+
 // --- NEW: Lazy Loading Endpoint for Series Details ---
 app.get('/api/vod/series/:seriesId', requireAuth, async (req, res) => {
     const seriesIdParam = req.params.seriesId;
@@ -2340,7 +2373,7 @@ app.get('/api/vod/series/:seriesId', requireAuth, async (req, res) => {
         const numericSeriesId = seriesInfo.id; // Get the internal numeric ID for relations
 
         // 2. Check if episodes exist in DB
-        const existingEpisodes = await dbAll(db, `
+        let episodesToReturn = await dbAll(db, `
             SELECT e.*, r.provider_id, r.provider_stream_id, r.container_extension
             FROM episodes e
             JOIN provider_episode_relations r ON e.id = r.episode_id
@@ -2348,10 +2381,8 @@ app.get('/api/vod/series/:seriesId', requireAuth, async (req, res) => {
             ORDER BY e.season_num, e.episode_num
         `, [numericSeriesId]);
 
-        let episodesToReturn = existingEpisodes;
-
-        // 3. If no episodes in DB, fetch from XC API and save
-        if (existingEpisodes.length === 0) {
+        // 3. If no episodes in DB, fetch from XC API and save (with deduplication for simultaneous requests)
+        if (episodesToReturn.length === 0) {
             console.log(`[API_VOD_SERIES] No episodes found in DB for Series ID ${numericSeriesId}. Fetching from provider...`);
 
             // Find the provider details for this series
@@ -2369,7 +2400,6 @@ app.get('/api/vod/series/:seriesId', requireAuth, async (req, res) => {
                         console.warn(`[API_VOD_SERIES] Access denied for user ${req.session.username} to provider ${relation.provider_id}`);
                         return res.status(403).json({ error: "Access denied to this series." });
                     }
-                    // If allowedSources exists but provider not in it, also deny
                     if (!allowedSources[relation.provider_id]) {
                         console.warn(`[API_VOD_SERIES] Access denied (not in list) for user ${req.session.username} to provider ${relation.provider_id}`);
                         return res.status(403).json({ error: "Access denied to this series." });
@@ -2379,85 +2409,103 @@ app.get('/api/vod/series/:seriesId', requireAuth, async (req, res) => {
                 console.error("[API_VOD] Error checking user permissions:", dbErr);
             }
 
-            const settings = getSettings();
-            const providerConfig = settings.m3uSources.find(s => s.id === relation.provider_id);
-            if (!providerConfig || providerConfig.type !== 'xc' || !providerConfig.xc_data) {
-                return res.status(500).json({ error: 'Could not find or parse XC provider configuration for this series.' });
-            }
-
-            let xcInfo;
-            try {
-                xcInfo = JSON.parse(providerConfig.xc_data);
-            } catch (e) {
-                return res.status(500).json({ error: 'Failed to parse XC provider credentials.' });
-            }
-
-            const activeUserAgent = settings.userAgents.find(ua => ua.id === settings.activeUserAgentId)?.value || 'VLC/3.0.20 (Linux; x86_64)';
-            const client = new XtreamClient(xcInfo.server, xcInfo.username, xcInfo.password, activeUserAgent);
-            let seriesDetails;
-            try {
-                seriesDetails = await client.getSeriesInfo(relation.external_series_id);
-            } catch (xcError) {
-                console.error(`[API_VOD_SERIES] XC Client error for series ${numericSeriesId}: ${xcError.message}`);
-                return res.status(504).json({ error: `Provider timeout: Could not fetch series details from the provider. Please try again later.` });
-            }
-
-            if (!seriesDetails || !seriesDetails.episodes) {
-                console.warn(`[API_VOD_SERIES] Provider returned no episode data for external ID ${relation.external_series_id}.`);
-                episodesToReturn = [];
+            // Deduplicate in-flight fetch & DB-write promises for the same series
+            if (pendingSeriesFetches.has(numericSeriesId)) {
+                console.log(`[API_VOD_SERIES] Joining existing in-flight fetch for series ${numericSeriesId}...`);
+                await pendingSeriesFetches.get(numericSeriesId);
             } else {
-                console.log(`[API_VOD_SERIES] Fetched ${Object.values(seriesDetails.episodes).flat().length} episodes from provider. Saving to DB...`);
-                const episodeInsertStmt = db.prepare(`INSERT OR IGNORE INTO episodes (series_id, season_num, episode_num, name, description, air_date, tmdb_id, imdb_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
-                const episodeRelationInsertStmt = db.prepare(`INSERT OR IGNORE INTO provider_episode_relations (provider_id, episode_id, provider_stream_id, container_extension, last_seen) VALUES (?, ?, ?, ?, ?)`);
-                const lastSeen = new Date().toISOString();
-
-                await dbRun(db, "BEGIN TRANSACTION");
-                try {
-                    for (const seasonNum in seriesDetails.episodes) {
-                        for (const epData of seriesDetails.episodes[seasonNum]) {
-                            let episodeId;
-                            const existingEp = await dbGet(db, `SELECT id FROM episodes WHERE series_id = ? AND season_num = ? AND episode_num = ?`, [numericSeriesId, epData.season || seasonNum, epData.episode_num]);
-
-                            if (existingEp) {
-                                episodeId = existingEp.id;
-                            } else {
-                                const epResult = await new Promise((resolve, reject) => {
-                                    episodeInsertStmt.run(numericSeriesId, epData.season || seasonNum, epData.episode_num, epData.title, epData.info?.plot, epData.info?.releasedate, null, null, function (err) {
-                                        if (err) reject(err);
-                                        else resolve(this);
-                                    });
-                                });
-                                episodeId = epResult.lastID;
-                            }
-
-                            await new Promise((resolve, reject) => {
-                                episodeRelationInsertStmt.run(relation.provider_id, episodeId, epData.id, epData.container_extension || 'mp4', lastSeen, function (err) {
-                                    if (err) reject(err);
-                                    else resolve(this);
-                                });
-                            });
-                        }
+                const fetchPromise = (async () => {
+                    const settings = getSettings();
+                    const providerConfig = settings.m3uSources.find(s => s.id === relation.provider_id);
+                    if (!providerConfig || providerConfig.type !== 'xc' || !providerConfig.xc_data) {
+                        throw new Error('Could not find or parse XC provider configuration for this series.');
                     }
-                    await dbRun(db, "COMMIT");
-                    console.log(`[API_VOD_SERIES] Successfully saved episodes for Series ID ${numericSeriesId} to DB.`);
-                } catch (dbError) {
-                    await dbRun(db, "ROLLBACK");
-                    console.error(`[API_VOD_SERIES] DB Error saving episodes for Series ID ${numericSeriesId}: ${dbError.message}`);
-                    return res.status(500).json({ error: 'Failed to save fetched episodes to database.' });
+
+                    const xcInfo = JSON.parse(providerConfig.xc_data);
+                    const activeUserAgent = settings.userAgents.find(ua => ua.id === settings.activeUserAgentId)?.value || 'VLC/3.0.20 (Linux; x86_64)';
+                    const client = new XtreamClient(xcInfo.server, xcInfo.username, xcInfo.password, activeUserAgent);
+
+                    const seriesDetails = await client.getSeriesInfo(relation.external_series_id);
+                    if (!seriesDetails || !seriesDetails.episodes) {
+                        console.warn(`[API_VOD_SERIES] Provider returned no episode data for external ID ${relation.external_series_id}.`);
+                        return;
+                    }
+
+                    const episodeInsertStmt = db.prepare(`INSERT OR IGNORE INTO episodes (series_id, season_num, episode_num, name, description, air_date, tmdb_id, imdb_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+                    const episodeRelationInsertStmt = db.prepare(`INSERT OR IGNORE INTO provider_episode_relations (provider_id, episode_id, provider_stream_id, container_extension, last_seen) VALUES (?, ?, ?, ?, ?)`);
+                    const lastSeen = new Date().toISOString();
+
+                    await dbRun(db, "BEGIN TRANSACTION");
+                    try {
+                        // Normalize episodes: could be object {"1": [...]} or array [...]
+                        const seasonsEntries = Array.isArray(seriesDetails.episodes)
+                            ? [["1", seriesDetails.episodes]]
+                            : Object.entries(seriesDetails.episodes);
+
+                        for (const [seasonNum, epList] of seasonsEntries) {
+                            if (!Array.isArray(epList)) continue;
+                            for (const epData of epList) {
+                                const season = parseInt(epData.season ?? seasonNum, 10) || 0;
+                                const epNum = parseInt(epData.episode_num ?? epData.episode ?? 0, 10) || 0;
+                                const title = epData.title || epData.name || `Episode ${epNum}`;
+                                const plot = epData.info?.plot || epData.plot || null;
+                                const releaseDate = epData.info?.releasedate || epData.info?.release_date || epData.release_date || null;
+                                const streamId = String(epData.id || epData.stream_id || '');
+                                const ext = epData.container_extension || 'mp4';
+
+                                let episodeId;
+                                const existingEp = await dbGet(db, `SELECT id FROM episodes WHERE series_id = ? AND season_num = ? AND episode_num = ?`, [numericSeriesId, season, epNum]);
+
+                                if (existingEp) {
+                                    episodeId = existingEp.id;
+                                } else {
+                                    const epResult = await new Promise((resolve, reject) => {
+                                        episodeInsertStmt.run(numericSeriesId, season, epNum, title, plot, releaseDate, null, null, function (err) {
+                                            if (err) reject(err);
+                                            else resolve(this);
+                                        });
+                                    });
+                                    episodeId = epResult.lastID;
+                                }
+
+                                if (episodeId && streamId) {
+                                    await new Promise((resolve, reject) => {
+                                        episodeRelationInsertStmt.run(relation.provider_id, episodeId, streamId, ext, lastSeen, function (err) {
+                                            if (err) reject(err);
+                                            else resolve(this);
+                                        });
+                                    });
+                                }
+                            }
+                        }
+                        await dbRun(db, "COMMIT");
+                        console.log(`[API_VOD_SERIES] Successfully saved episodes for Series ID ${numericSeriesId} to DB.`);
+                    } catch (dbError) {
+                        await dbRun(db, "ROLLBACK");
+                        throw dbError;
+                    } finally {
+                        episodeInsertStmt.finalize();
+                        episodeRelationInsertStmt.finalize();
+                    }
+                })();
+
+                pendingSeriesFetches.set(numericSeriesId, fetchPromise);
+                try {
+                    await fetchPromise;
                 } finally {
-                    episodeInsertStmt.finalize();
-                    episodeRelationInsertStmt.finalize();
+                    pendingSeriesFetches.delete(numericSeriesId);
                 }
-                episodesToReturn = await dbAll(db, `
-                    SELECT e.*, r.provider_id, r.provider_stream_id, r.container_extension
-                    FROM episodes e
-                    JOIN provider_episode_relations r ON e.id = r.episode_id
-                    WHERE e.series_id = ?
-                    ORDER BY e.season_num, e.episode_num
-                `, [numericSeriesId]);
             }
+
+            episodesToReturn = await dbAll(db, `
+                SELECT e.*, r.provider_id, r.provider_stream_id, r.container_extension
+                FROM episodes e
+                JOIN provider_episode_relations r ON e.id = r.episode_id
+                WHERE e.series_id = ?
+                ORDER BY e.season_num, e.episode_num
+            `, [numericSeriesId]);
         } else {
-            console.log(`[API_VOD_SERIES] Found ${existingEpisodes.length} episodes in DB for Series ID ${numericSeriesId}.`);
+            console.log(`[API_VOD_SERIES] Found ${episodesToReturn.length} episodes in DB for Series ID ${numericSeriesId}.`);
         }
 
         // 4. Build the response structure
@@ -3301,21 +3349,20 @@ function allowLocalOrAuth(req, res, next) {
         return next();
     }
 
-    // Get the real client IP (first IP in X-Forwarded-For chain, before Cloudflare)
-    let clientIp = req.clientIp || req.ip;
+    // req.ip is Express-computed and respects the 'trust proxy' setting
+    // configured on app startup: it only honors X-Forwarded-For when the
+    // immediate TCP peer is the trusted Caddy proxy, so it can't be spoofed
+    // by an external client sending its own X-Forwarded-For header.
+    const clientIp = req.ip;
 
-    // X-Forwarded-For can be a comma-separated list: "client, proxy1, proxy2"
-    // We want the FIRST IP (the real client)
-    if (clientIp && clientIp.includes(',')) {
-        clientIp = clientIp.split(',')[0].trim();
-    }
-
-    console.log(`[STREAM_AUTH] Checking IP: ${clientIp} (original: ${req.clientIp || req.ip})`);
+    console.log(`[STREAM_AUTH] Checking IP: ${clientIp}`);
 
     // Check if request is from local network (fallback for direct local access)
+    const octets = clientIp.startsWith('::ffff:') ? clientIp.slice(7).split('.') : clientIp.split('.');
+    const isPrivate172 = octets.length === 4 && octets[0] === '172' && Number(octets[1]) >= 16 && Number(octets[1]) <= 31;
     const isLocal = clientIp.startsWith('192.168.') ||
         clientIp.startsWith('10.') ||
-        clientIp.startsWith('172.16.') ||
+        isPrivate172 ||
         clientIp === '127.0.0.1' ||
         clientIp === '::1' ||
         clientIp === '::ffff:127.0.0.1';
@@ -3333,15 +3380,82 @@ function allowLocalOrAuth(req, res, next) {
     res.status(401).send('Authentication required');
 }
 
+// Probes a VOD source URL's real duration via ffprobe, used to give the
+// Chromecast Default Media Receiver an accurate duration up front (it has no
+// way to determine it from our fragmented, unbounded /stream ffmpeg output).
+// Only reads the container header, not the whole file, so it's normally fast.
+app.get('/api/vod/duration', requireAuth, (req, res) => {
+    const { url: sourceUrl, userAgentId } = req.query;
+    if (!sourceUrl) {
+        return res.status(400).json({ error: '`url` query parameter is required.' });
+    }
+
+    const settings = getSettings();
+    const userAgent = (settings.userAgents || []).find(ua => ua.id === userAgentId);
+
+    const args = [
+        '-v', 'error',
+        ...(userAgent ? ['-user_agent', userAgent.value] : []),
+        '-show_entries', 'format=duration',
+        '-of', 'default=noprint_wrappers=1:nokey=1',
+        sourceUrl
+    ];
+
+    console.log(`[VOD_DURATION] Probing: ${sourceUrl}`);
+    const ffprobe = spawn('ffprobe', args);
+    let output = '';
+    let errorOutput = '';
+    let responded = false;
+
+    const timeout = setTimeout(() => {
+        if (!responded) {
+            responded = true;
+            ffprobe.kill('SIGKILL');
+            console.warn(`[VOD_DURATION] Probe timed out: ${sourceUrl}`);
+            res.status(504).json({ error: 'Probe timed out' });
+        }
+    }, 8000);
+
+    ffprobe.stdout.on('data', (data) => { output += data.toString(); });
+    ffprobe.stderr.on('data', (data) => { errorOutput += data.toString(); });
+
+    ffprobe.on('close', () => {
+        if (responded) return;
+        responded = true;
+        clearTimeout(timeout);
+        const duration = parseFloat(output.trim());
+        if (!isNaN(duration) && duration > 0) {
+            console.log(`[VOD_DURATION] ${sourceUrl} -> ${duration}s`);
+            res.json({ duration });
+        } else {
+            console.warn(`[VOD_DURATION] Could not determine duration for ${sourceUrl}: ${errorOutput.trim()}`);
+            res.status(422).json({ error: 'Could not determine duration' });
+        }
+    });
+
+    ffprobe.on('error', (err) => {
+        if (responded) return;
+        responded = true;
+        clearTimeout(timeout);
+        console.error(`[VOD_DURATION] ffprobe spawn error: ${err.message}`);
+        res.status(500).json({ error: 'ffprobe failed to start' });
+    });
+});
+
 // MODIFIED: Stream endpoint now allows local network access for Chromecast
-app.get('/stream', allowLocalOrAuth, async (req, res) => {
-    const { url: streamUrl, profileId, userAgentId, vodName, vodLogo } = req.query;
+app.route('/stream')
+    .get(allowLocalOrAuth, async (req, res) => {
+    const { url: streamUrl, profileId, userAgentId, vodName, vodLogo, startTime: seekStartTime } = req.query;
     const userId = req.session.userId;
     const username = req.session.username;
     const clientIp = req.clientIp;
 
-    // Include profileId in stream key so Cast (MP4) and browser (MPEG-TS) don't share the same process
-    const streamKey = `${userId}::${streamUrl}::${profileId}`;
+    // Seeking (used by Cast VOD controls) means restarting ffmpeg with -ss at a
+    // new offset, since the piped output has no byte-range/seek support of its
+    // own. Fold it into the key so a seek always spawns a fresh process instead
+    // of reusing/serving whatever offset the previous request was at.
+    const seekSeconds = seekStartTime ? parseFloat(seekStartTime) : 0;
+    const streamKey = `${userId}::${streamUrl}::${profileId}${seekSeconds > 0 ? `::t${seekSeconds}` : ''}`;
 
     const activeStreamInfo = activeStreamProcesses.get(streamKey);
 
@@ -3415,9 +3529,16 @@ app.get('/stream', allowLocalOrAuth, async (req, res) => {
     // Prefix ffmpeg command with "-v level+{playerLoglevel}" here to control log spamming.
     // Using warning loglevel limits messages to actual warnings and errors.
     // playerLogLevel is configured via settings page pulldown.
-    const commandTemplate = `-v level+${settings.playerLogLevel} ` + profile.command
+    let commandTemplate = `-v level+${settings.playerLogLevel} ` + profile.command
         .replace(/{streamUrl}/g, streamUrl)
         .replace(/{userAgent}|{clientUserAgent}/g, userAgent.value);
+
+    if (seekSeconds > 0) {
+        // Input-side seek (-ss before -i): ffmpeg jumps to the offset before
+        // decoding starts, which is fast and accurate enough for VOD scrubbing.
+        commandTemplate = commandTemplate.replace(' -i ', ` -ss ${seekSeconds} -i `);
+        console.log(`[STREAM] Seeking to ${seekSeconds}s via -ss`);
+    }
 
     const args = (commandTemplate.match(/(?:[^\s"]+|"[^"]*")+/g) || []).map(arg => arg.replace(/^"|"$/g, ''));
 
@@ -3510,11 +3631,11 @@ app.get('/stream', allowLocalOrAuth, async (req, res) => {
             console.log(`[STREAM] Client closed connection for ${streamKey}, but no process was found in the map.`);
         }
     });
-});
+    })
 
-// HEAD request handler for Shaka Player compatibility
-// Shaka Player sends HEAD requests to probe streams before loading
-app.head('/stream', allowLocalOrAuth, async (req, res) => {
+    // HEAD request handler for Shaka Player compatibility
+    // Shaka Player sends HEAD requests to probe streams before loading
+    .head(allowLocalOrAuth, async (req, res) => {
     const { profileId } = req.query;
 
     // Determine content type based on profile
@@ -4787,10 +4908,34 @@ app.get('/api/public-ip', requireAuth, (req, res) => {
     });
 });
 
+// Rejects loopback/private/link-local/reserved addresses so the image proxy
+// below can't be used to reach internal services or cloud metadata endpoints (SSRF).
+function isForbiddenIp(ip) {
+    if (net.isIPv4(ip)) {
+        const o = ip.split('.').map(Number);
+        if (o[0] === 127) return true; // loopback
+        if (o[0] === 10) return true; // private
+        if (o[0] === 172 && o[1] >= 16 && o[1] <= 31) return true; // private
+        if (o[0] === 192 && o[1] === 168) return true; // private
+        if (o[0] === 169 && o[1] === 254) return true; // link-local / cloud metadata (169.254.169.254)
+        if (o[0] === 0) return true; // "this" network
+        if (o[0] === 100 && o[1] >= 64 && o[1] <= 127) return true; // carrier-grade NAT
+        return false;
+    }
+    if (net.isIPv6(ip)) {
+        const lower = ip.toLowerCase();
+        if (lower === '::1') return true; // loopback
+        if (lower.startsWith('fe80:') || lower.startsWith('fc') || lower.startsWith('fd')) return true; // link-local / unique-local
+        if (lower.startsWith('::ffff:')) return isForbiddenIp(lower.slice(7)); // IPv4-mapped
+        return false;
+    }
+    return true; // unrecognized format, fail closed
+}
+
 // --- Image Proxy Endpoint (for VOD posters) ---
 // Proxies HTTP/HTTPS images to avoid mixed content warnings
 // Now with server-side disk caching for performance
-app.get('/api/image-proxy', allowLocalOrAuth, (req, res) => {
+app.get('/api/image-proxy', allowLocalOrAuth, async (req, res) => {
     const imageUrl = req.query.url;
 
     if (!imageUrl) {
@@ -4798,10 +4943,30 @@ app.get('/api/image-proxy', allowLocalOrAuth, (req, res) => {
     }
 
     // Validate URL
+    let parsedUrl;
     try {
-        new URL(imageUrl);
+        parsedUrl = new URL(imageUrl);
     } catch (err) {
         return res.status(400).send('Invalid URL');
+    }
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+        return res.status(400).send('URL must use http or https');
+    }
+
+    // Resolve the hostname and block internal/private targets before fetching.
+    // The resolved address is pinned via the `lookup` option on the fetch below
+    // so a DNS answer that changes between this check and the actual request
+    // (DNS rebinding) can't be used to reach a blocked address.
+    let resolvedAddress;
+    try {
+        resolvedAddress = (await dns.promises.lookup(parsedUrl.hostname)).address;
+    } catch (err) {
+        console.error(`[IMAGE_PROXY] DNS lookup failed for ${parsedUrl.hostname}:`, err.message);
+        return res.status(400).send('Could not resolve host');
+    }
+    if (isForbiddenIp(resolvedAddress)) {
+        console.warn(`[IMAGE_PROXY] Blocked SSRF attempt: ${parsedUrl.hostname} -> ${resolvedAddress}`);
+        return res.status(400).send('URL points to a forbidden address');
     }
 
     // Generate a cache filename based on the URL hash
@@ -4844,9 +5009,21 @@ app.get('/api/image-proxy', allowLocalOrAuth, (req, res) => {
     console.log(`[IMAGE_PROXY] Fetching and caching image: ${imageUrl}`);
 
     // Determine protocol (http or https)
-    const protocol = imageUrl.startsWith('https') ? https : http;
+    const protocol = parsedUrl.protocol === 'https:' ? https : http;
 
-    protocol.get(imageUrl, (imageRes) => {
+    protocol.get(imageUrl, {
+        // Pin the connection to the address we already validated above.
+        // Node's happy-eyeballs connect (net.connect on Node 20+) can request
+        // the array form via options.all, so both call shapes are handled.
+        lookup: (hostname, lookupOptions, callback) => {
+            const family = net.isIPv6(resolvedAddress) ? 6 : 4;
+            if (lookupOptions && lookupOptions.all) {
+                callback(null, [{ address: resolvedAddress, family }]);
+            } else {
+                callback(null, resolvedAddress, family);
+            }
+        }
+    }, (imageRes) => {
         // Check if response is an image
         const contentType = imageRes.headers['content-type'];
         if (!contentType || !contentType.startsWith('image/')) {

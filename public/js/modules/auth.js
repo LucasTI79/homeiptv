@@ -273,35 +273,37 @@ const showSetupScreen = () => {
  * @param {object} user - The user object { username, isAdmin, canUseDvr }.
  */
 const showApp = (user) => {
-    appState.currentUser = user;
+    try {
+        appState.currentUser = user;
 
-    const authContainer = document.getElementById('auth-container');
-    const appContainer = document.getElementById('app-container');
+        const authContainer = document.getElementById('auth-container');
+        const appContainer = document.getElementById('app-container');
 
-    authContainer.classList.add('hidden');
-    appContainer.classList.remove('hidden');
-    appContainer.classList.add('flex'); // Ensure flex display for app layout
+        if (authContainer) authContainer.classList.add('hidden');
+        if (appContainer) {
+            appContainer.classList.remove('hidden');
+            appContainer.classList.add('flex');
+        }
 
-    initializeUIElements();
-    console.log('[AUTH_UI] UI Elements initialized.');
+        initializeUIElements();
+        console.log('[AUTH_UI] UI Elements initialized.');
 
-    console.log(`[AUTH_UI] Displaying main app for user: ${user.username} (Admin: ${user.isAdmin}, DVR: ${user.canUseDvr})`);
+        console.log(`[AUTH_UI] Displaying main app for user: ${user.username} (Admin: ${user.isAdmin}, DVR: ${user.canUseDvr})`);
 
-    // MODIFIED: Removed redundant visibility toggling from this function.
-    // This will now be handled exclusively by proceedWithRouteChange in ui.js,
-    // which acts as the single source of truth for UI state based on routes and permissions.
-    // This prevents race conditions during app initialization.
-    UIElements.userDisplay.textContent = user.username;
-    UIElements.userDisplay.classList.remove('hidden');
+        if (UIElements.userDisplay) {
+            UIElements.userDisplay.textContent = user.username;
+            UIElements.userDisplay.classList.remove('hidden');
+        }
 
-    console.log(`[AUTH_UI] User display set to: ${user.username}.`);
-
-    if (!appState.appInitialized) {
-        console.log('[AUTH_UI] Main app not initialized yet, calling initMainApp().');
-        initMainApp();
-        appState.appInitialized = true;
-    } else {
-        console.log('[AUTH_UI] Main app already initialized.');
+        if (!appState.appInitialized) {
+            console.log('[AUTH_UI] Main app not initialized yet, calling initMainApp().');
+            initMainApp();
+            appState.appInitialized = true;
+        } else {
+            console.log('[AUTH_UI] Main app already initialized.');
+        }
+    } catch (err) {
+        console.error('[AUTH_UI] Error showing app:', err);
     }
 };
 
@@ -311,14 +313,18 @@ const showApp = (user) => {
  */
 export async function checkAuthStatus() {
     console.log('[AUTH] Starting authentication status check...');
-    // We only need a few elements for the initial check
     const authLoader = document.getElementById('auth-loader');
     const loginError = document.getElementById('login-error');
-    authLoader.classList.remove('hidden'); // Show loader
-    loginError.classList.add('hidden'); // Clear any previous errors
+    if (authLoader) authLoader.classList.remove('hidden');
+    if (loginError) loginError.classList.add('hidden');
 
     try {
-        const res = await fetch('/api/auth/status');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+        const res = await fetch('/api/auth/status', { signal: controller.signal });
+        clearTimeout(timeoutId);
+
         if (!res.ok) {
             console.warn(`[AUTH] /api/auth/status returned non-OK status: ${res.status} ${res.statusText}`);
         }
@@ -330,7 +336,12 @@ export async function checkAuthStatus() {
             showApp(status.user);
         } else {
             console.log('[AUTH] User not logged in. Checking if setup is needed...');
-            const setupRes = await fetch('/api/auth/needs-setup');
+            const setupController = new AbortController();
+            const setupTimeoutId = setTimeout(() => setupController.abort(), 6000);
+
+            const setupRes = await fetch('/api/auth/needs-setup', { signal: setupController.signal });
+            clearTimeout(setupTimeoutId);
+
             if (!setupRes.ok) {
                 console.warn(`[AUTH] /api/auth/needs-setup returned non-OK status: ${setupRes.status} ${setupRes.statusText}`);
             }
@@ -346,10 +357,10 @@ export async function checkAuthStatus() {
         }
     } catch (e) {
         console.error("[AUTH] Authentication check failed:", e);
-        showLoginScreen("Could not verify authentication status. Please check server connection.");
+        showLoginScreen("Could not verify authentication status. Please ensure server is running and reload.");
         showNotification("Failed to connect to authentication server.", true);
     } finally {
-        authLoader.classList.add('hidden'); // Always hide loader at the end
+        if (authLoader) authLoader.classList.add('hidden');
     }
 }
 

@@ -2385,6 +2385,14 @@
                     <span data-icon="cast" class="w-16 h-16 mb-4"></span>
                     <p id="cast-status-text" class="text-lg font-semibold"></p>
                     <p id="cast-status-channel" class="text-sm text-gray-400"></p>
+                    <div id="cast-controls" class="hidden items-center gap-6 mt-6">
+                        <button type="button" id="cast-rewind-btn" title="Rewind 10s"
+                            class="w-12 h-12 rounded-full bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold flex items-center justify-center">-10s</button>
+                        <button type="button" id="cast-play-pause-btn" title="Play/Pause"
+                            class="w-16 h-16 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-2xl flex items-center justify-center">⏸</button>
+                        <button type="button" id="cast-forward-btn" title="Forward 10s"
+                            class="w-12 h-12 rounded-full bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold flex items-center justify-center">+10s</button>
+                    </div>
                 </div>
             </div>
             <div id="video-resize-handle" class="resize-handle"></div>

@@ -1,0 +1,22 @@
+# Caddyfile for ViniPlay
+# Terminates HTTPS locally (self-signed via Caddy's internal CA) and
+# reverse-proxies to the viniplay app so the Google Cast Sender SDK
+# gets a secure context when accessed by LAN IP.
+
+{
+	auto_https disable_redirects
+}
+
+:443 {
+	# The site address has no hostname (LAN IP varies by network), so the
+	# internal issuer needs "on_demand" to mint a cert for whatever SNI
+	# the client presents (IP or hostname) instead of a fixed pre-issued one.
+	tls internal {
+		on_demand
+	}
+
+	# Upstream is injected via the CADDY_UPSTREAM env var set in docker-compose.yml
+	# (defaults to the "viniplay" container; set it to host.docker.internal:8998
+	# to proxy to a `node server.js` running directly on the host instead).
+	reverse_proxy {$CADDY_UPSTREAM}
+}

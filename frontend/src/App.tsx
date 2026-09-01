@@ -5,6 +5,7 @@ import { useAuthStatus, useNeedsSetup } from './api/auth';
 import { LoginPage } from './pages/LoginPage';
 import { SetupPage } from './pages/SetupPage';
 import { ComingSoonPage } from './pages/ComingSoonPage';
+import { GuidePage } from './pages/GuidePage';
 import { AppShell } from './components/AppShell';
 
 function Gate() {
@@ -38,7 +39,7 @@ function Gate() {
   return (
     <Routes>
       <Route element={<AppShell />}>
-        <Route path="/guide" element={<ComingSoonPage title="TV Guide" />} />
+        <Route path="/guide" element={<GuidePage />} />
         <Route path="/player" element={<ComingSoonPage title="Player" />} />
         <Route path="/vod" element={<ComingSoonPage title="VODs" />} />
         <Route path="/dvr" element={<ComingSoonPage title="DVR" />} />

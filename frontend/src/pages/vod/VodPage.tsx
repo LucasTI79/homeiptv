@@ -10,7 +10,7 @@ import { GuideTour } from '../../components/ui/GuideTour';
 import { VodSkeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { SeriesModal, type PlayEpisodeOptions } from '../../components/vod/SeriesModal';
-import { FiPlay, FiX, FiHeart, FiClock, FiDownload, FiCheckCircle, FiLoader } from 'react-icons/fi';
+import { FiPlay, FiX, FiHeart, FiClock, FiDownload, FiCheckCircle, FiLoader, FiInfo } from 'react-icons/fi';
 import { FaHeart } from 'react-icons/fa';
 
 import { PLAYBACK_CONFIG } from '../../constants';
@@ -155,6 +155,19 @@ export function VodPage() {
     navigate('/player');
   };
 
+  const handleOpenSeriesInfo = (cw: VodProgressItem) => {
+    if (!cw.seriesId) return;
+    const found = library?.series.find((s) => String(s.id) === String(cw.seriesId));
+    const seriesItem: VodItem = found || {
+      id: String(cw.seriesId),
+      name: cw.seriesName || cw.title,
+      type: 'series',
+      group: '',
+      logo: cw.logo || '',
+    };
+    setSelectedSeries(seriesItem);
+  };
+
   const handleResumeContinueWatching = (cw: VodProgressItem) => {
     let episodes: SeriesEpisode[] = cw.episodes || [];
     let nextEpisode = cw.nextEpisode;
@@ -253,7 +266,14 @@ export function VodPage() {
               return (
                 <div
                   key={cw.id}
-                  className="w-48 sm:w-56 shrink-0 bg-gray-900/80 border border-gray-700/60 rounded-xl overflow-hidden hover:border-blue-500/60 transition-all flex flex-col group relative shadow-md"
+                  onClick={() => {
+                    if (cw.type === 'series' && cw.seriesId) {
+                      handleOpenSeriesInfo(cw);
+                    } else {
+                      handleResumeContinueWatching(cw);
+                    }
+                  }}
+                  className="w-48 sm:w-56 shrink-0 bg-gray-900/80 border border-gray-700/60 rounded-xl overflow-hidden hover:border-blue-500/60 transition-all flex flex-col group relative shadow-md cursor-pointer"
                 >
                   <div className="relative aspect-video bg-gray-950 overflow-hidden">
                     <img
@@ -268,12 +288,29 @@ export function VodPage() {
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                       <button
                         type="button"
-                        onClick={() => handleResumeContinueWatching(cw)}
-                        className="w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center text-sm shadow-xl transition"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleResumeContinueWatching(cw);
+                        }}
+                        className="w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center text-sm shadow-xl transition hover:scale-105"
                         title="Resume"
                       >
                         <FiPlay className="w-4 h-4 fill-current ml-0.5" />
                       </button>
+
+                      {cw.type === 'series' && cw.seriesId && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenSeriesInfo(cw);
+                          }}
+                          className="w-10 h-10 rounded-full bg-gray-800/90 hover:bg-gray-700 text-white flex items-center justify-center text-sm shadow-xl transition border border-gray-600 hover:scale-105"
+                          title="View series details"
+                        >
+                          <FiInfo className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
 
                     {/* Remove from continue watching */}
@@ -299,9 +336,24 @@ export function VodPage() {
                   </div>
 
                   <div className="p-2.5 flex flex-col justify-between flex-1">
-                    <h3 className="text-xs font-semibold text-white truncate" title={cw.title}>
-                      {cw.title}
-                    </h3>
+                    <div className="flex items-start justify-between gap-1">
+                      <h3 className="text-xs font-semibold text-white truncate flex-1" title={cw.title}>
+                        {cw.title}
+                      </h3>
+                      {cw.type === 'series' && cw.seriesId && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenSeriesInfo(cw);
+                          }}
+                          className="text-gray-400 hover:text-blue-400 p-0.5 rounded transition shrink-0"
+                          title="View series details"
+                        >
+                          <FiInfo className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                     <div className="flex items-center justify-between mt-1 text-[11px] text-gray-400">
                       <span>{pct}% watched</span>
                       {remainingMins > 0 && <span>{remainingMins}m left</span>}

@@ -27,6 +27,15 @@ vi.mock('../../api/vod', () => ({
     mutate: vi.fn(),
     isPending: false,
   })),
+  useSeriesDetails: vi.fn(() => ({
+    data: {
+      id: '2',
+      name: 'Test Series',
+      logo: '',
+      seasons: { '1': [{ name: 'Ep 1', url: 'http://example.com/s1e1.mp4' }] },
+    },
+    isLoading: false,
+  })),
 }));
 
 describe('VodPage', () => {
@@ -86,5 +95,66 @@ describe('VodPage', () => {
     expect(selected?.seriesContext?.episodes).toHaveLength(2);
     expect(selected?.nextEpisode?.name).toBe('Test Series - Ep 2');
     expect(mockNavigate).toHaveBeenCalledWith('/player');
+  });
+
+  it('opens series details modal when clicking series info button in Continue Watching', async () => {
+    usePlaybackStore.setState({
+      progress: {
+        '2_s1_e0': {
+          id: '2_s1_e0',
+          seriesId: '2',
+          seriesName: 'Test Series',
+          season: '1',
+          episodeIndex: 0,
+          title: 'Test Series - Ep 1',
+          type: 'series',
+          url: 'http://example.com/s1e1.mp4',
+          currentTime: 120,
+          duration: 2400,
+          updatedAt: Date.now(),
+        },
+      },
+    });
+
+    renderWithProviders(<VodPage />);
+
+    expect(screen.getByText('Continue Watching')).toBeInTheDocument();
+
+    const infoBtns = screen.getAllByTitle('View series details');
+    expect(infoBtns.length).toBeGreaterThan(0);
+    fireEvent.click(infoBtns[0]);
+
+    // Modal should now be visible with Season 1 and episodes
+    expect(screen.getByText(/Season 1/)).toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('opens series details modal when clicking the series card directly in Continue Watching', async () => {
+    usePlaybackStore.setState({
+      progress: {
+        '2_s1_e0': {
+          id: '2_s1_e0',
+          seriesId: '2',
+          seriesName: 'Test Series',
+          season: '1',
+          episodeIndex: 0,
+          title: 'Test Series - Ep 1',
+          type: 'series',
+          url: 'http://example.com/s1e1.mp4',
+          currentTime: 120,
+          duration: 2400,
+          updatedAt: Date.now(),
+        },
+      },
+    });
+
+    renderWithProviders(<VodPage />);
+
+    // Click the card title
+    const titleEl = screen.getByText('Test Series - Ep 1');
+    fireEvent.click(titleEl);
+
+    expect(screen.getByText(/Season 1/)).toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 });

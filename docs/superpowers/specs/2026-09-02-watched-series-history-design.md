@@ -72,6 +72,10 @@ interface PlaybackState {
   ) => Promise<void>;
   isWatched: (id: string) => boolean;
   getSeriesWatchedCount: (seriesId: string) => number;
+
+  // Ações de Limpeza de Em Andamento:
+  clearSeriesProgress: (seriesId: string) => Promise<void>;
+  clearAllProgress: () => Promise<void>;
 }
 ```
 

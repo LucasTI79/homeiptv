@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { to: '/player', label: 'Player' },
   { to: '/multiview', label: 'Multiview' },
   { to: '/vod', label: 'VODs' },
+  { to: '/downloads', label: 'Downloads' },
   { to: '/dvr', label: 'DVR' },
   { to: '/notifications', label: 'Notifications' },
   { to: '/admin', label: 'Activity' },

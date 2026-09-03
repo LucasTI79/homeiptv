@@ -10,6 +10,7 @@ import { SetupPage } from './pages/SetupPage';
 import { GuidePage } from './pages/GuidePage';
 import { PlayerPage } from './pages/PlayerPage';
 import { VodPage } from './pages/vod/VodPage';
+import { DownloadsPage } from './pages/downloads/DownloadsPage';
 import { DvrPage } from './pages/dvr/DvrPage';
 import { AdminPage } from './pages/admin/AdminPage';
 import { SettingsPage } from './pages/settings/SettingsPage';
@@ -61,6 +62,7 @@ function Gate() {
         <Route path="/guide" element={<GuidePage />} />
         <Route path="/player" element={<PlayerPage />} />
         <Route path="/vod" element={<VodPage />} />
+        <Route path="/downloads" element={<DownloadsPage />} />
         <Route path="/dvr" element={<DvrPage />} />
         <Route path="/notifications" element={<NotificationPage />} />
         <Route path="/multiview" element={<MultiviewPage />} />

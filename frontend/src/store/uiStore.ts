@@ -29,6 +29,8 @@ export interface SelectedChannel {
   initialTime?: number;
   seriesContext?: SelectedEpisodeContext;
   nextEpisode?: NextEpisodeInfo;
+  offlineFileName?: string;
+  isOffline?: boolean;
 }
 
 // Placeholder UI-only store (replaces state.js's globals from the old app).

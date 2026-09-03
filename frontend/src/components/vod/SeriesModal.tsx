@@ -11,6 +11,9 @@ import {
   FiCheckCircle,
   FiLoader,
   FiClock,
+  FiCheck,
+  FiRotateCcw,
+  FiTrash2,
 } from 'react-icons/fi';
 import { FaHeart } from 'react-icons/fa';
 
@@ -52,6 +55,12 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
   const isFavorite = usePlaybackStore((s) => s.isFavorite(seriesId));
   const toggleFavorite = usePlaybackStore((s) => s.toggleFavorite);
   const progress = usePlaybackStore((s) => s.progress);
+  const watchedMap = usePlaybackStore((s) => s.watchedMap);
+  const markEpisodeWatched = usePlaybackStore((s) => s.markEpisodeWatched);
+  const unmarkEpisodeWatched = usePlaybackStore((s) => s.unmarkEpisodeWatched);
+  const markSeasonWatched = usePlaybackStore((s) => s.markSeasonWatched);
+  const unmarkSeasonWatched = usePlaybackStore((s) => s.unmarkSeasonWatched);
+  const clearSeriesProgress = usePlaybackStore((s) => s.clearSeriesProgress);
 
   const tasks = useDownloadStore((s) => s.tasks);
   const initDownloads = useDownloadStore((s) => s.initDownloads);
@@ -71,6 +80,58 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
   const downloadingCount = seasonEpKeys.filter((k) => tasks[k]?.status === 'downloading').length;
   const queuedCount = seasonEpKeys.filter((k) => tasks[k]?.status === 'queued').length;
   const allSeasonDownloaded = currentEpisodes.length > 0 && downloadedCount === currentEpisodes.length;
+
+  // Watched statistics for current season
+  const watchedSeasonCount = currentEpisodes.filter((_, idx) => {
+    const k = `${seriesId}_s${activeSeason}_e${idx}`;
+    return !!watchedMap[k];
+  }).length;
+  const allSeasonWatched = currentEpisodes.length > 0 && watchedSeasonCount === currentEpisodes.length;
+
+  // Check if series has in-progress episodes in Continue Watching
+  const seriesHasProgress = Object.values(progress).some(
+    (item) => item.seriesId === seriesId || item.id.startsWith(`${seriesId}_`)
+  );
+
+  const handleClearSeriesProgress = async () => {
+    await clearSeriesProgress(seriesId);
+    toast.success('Progresso da série limpo do Continuar Assistindo!');
+  };
+
+  const handleToggleSeasonWatched = async () => {
+    if (allSeasonWatched) {
+      await unmarkSeasonWatched(seriesId, activeSeason, currentEpisodes);
+      toast('Temporada desmarcada como assistida');
+    } else {
+      await markSeasonWatched(
+        { id: seriesId, name: seriesName },
+        activeSeason,
+        currentEpisodes.map((ep, idx) => ({ name: ep.name || `Episódio ${idx + 1}`, url: ep.url }))
+      );
+      toast.success(`Temporada ${activeSeason} marcada como assistida!`);
+    }
+  };
+
+  const handleToggleEpisodeWatched = async (ep: SeriesEpisode, idx: number) => {
+    const epKey = `${seriesId}_s${activeSeason}_e${idx}`;
+    const isWatched = !!watchedMap[epKey];
+    if (isWatched) {
+      await unmarkEpisodeWatched(epKey);
+      toast('Episódio desmarcado');
+    } else {
+      await markEpisodeWatched({
+        id: epKey,
+        seriesId,
+        seriesName,
+        season: activeSeason,
+        episodeIndex: idx,
+        title: ep.name || `Episode ${idx + 1}`,
+        mediaType: 'series',
+        autoMarked: false,
+      });
+      toast.success('Episódio marcado como assistido!');
+    }
+  };
 
   const handleDownloadSeason = async () => {
     const toDownload = currentEpisodes.filter((_, idx) => {
@@ -199,6 +260,18 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
                 >
                   {isFavorite ? <FaHeart className="w-5 h-5" /> : <FiHeart className="w-5 h-5" />}
                 </button>
+
+                {seriesHasProgress && (
+                  <button
+                    type="button"
+                    onClick={handleClearSeriesProgress}
+                    className="px-2.5 py-1 text-xs bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 rounded-lg transition flex items-center gap-1.5 shadow ml-auto sm:ml-0"
+                    title="Limpar episódios em andamento desta série no Continuar Assistindo"
+                  >
+                    <FiTrash2 className="w-3.5 h-3.5" />
+                    <span>Limpar progresso da série</span>
+                  </button>
+                )}
               </div>
               <p className="text-xs text-gray-400 mt-1">
                 {seasonKeys.length} {seasonKeys.length === 1 ? 'Season' : 'Seasons'} Available
@@ -244,7 +317,35 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
                 </div>
 
                 {currentEpisodes.length > 0 && (
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Batch Watched Toggle */}
+                    <button
+                      type="button"
+                      onClick={handleToggleSeasonWatched}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 shrink-0 shadow border ${
+                        allSeasonWatched
+                          ? 'bg-emerald-600/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-600/30'
+                          : 'bg-gray-800/80 text-gray-300 border-gray-700 hover:text-white hover:bg-gray-700'
+                      }`}
+                      title={
+                        allSeasonWatched
+                          ? 'Desmarcar todos os episódios desta temporada'
+                          : 'Marcar todos os episódios desta temporada como assistidos'
+                      }
+                    >
+                      {allSeasonWatched ? (
+                        <>
+                          <FiRotateCcw className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Temporada Assistida ({watchedSeasonCount}/{currentEpisodes.length})</span>
+                        </>
+                      ) : (
+                        <>
+                          <FiCheck className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Marcar Temporada ({watchedSeasonCount}/{currentEpisodes.length})</span>
+                        </>
+                      )}
+                    </button>
+
                     {allSeasonDownloaded ? (
                       <div className="px-3 py-1.5 bg-emerald-600/20 text-emerald-400 border border-emerald-500/40 rounded-lg text-xs font-semibold flex items-center gap-1.5 shrink-0 shadow">
                         <FiCheckCircle className="w-4 h-4 text-emerald-400" />
@@ -286,6 +387,7 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
               <div className="flex-1 overflow-y-auto space-y-2 pr-1">
                 {currentEpisodes.map((ep, idx) => {
                   const epKey = `${seriesId}_s${activeSeason}_e${idx}`;
+                  const isEpWatched = !!watchedMap[epKey];
                   const epProgress = progress[epKey];
                   const progressPct = epProgress && epProgress.duration > 0
                     ? Math.min(100, Math.round((epProgress.currentTime / epProgress.duration) * 100))
@@ -307,6 +409,8 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
                           ? 'bg-blue-950/30 border-blue-500/50 shadow-md shadow-blue-500/10'
                           : isEpDownloaded
                           ? 'bg-gray-900/60 border-emerald-500/30'
+                          : isEpWatched
+                          ? 'bg-gray-900/40 border-gray-700/40 opacity-75 hover:opacity-100'
                           : 'bg-gray-900/60 border-gray-700/50 hover:border-blue-500/50'
                       }`}
                     >
@@ -339,6 +443,13 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
 
                         {/* Download & watch status badges */}
                         <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                          {isEpWatched && (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                              <FiCheck className="w-3 h-3 text-emerald-400" />
+                              <span>Assistido</span>
+                            </span>
+                          )}
+
                           {isEpDownloading && (
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-600/30 text-blue-300 border border-blue-500/50 flex items-center gap-1.5 animate-pulse">
                               <FiLoader className="w-3 h-3 animate-spin text-blue-400" />
@@ -373,6 +484,20 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0">
+                        {/* Watched Toggle Button */}
+                        <button
+                          type="button"
+                          onClick={() => handleToggleEpisodeWatched(ep, idx)}
+                          className={`p-2 rounded-lg border transition text-xs font-medium flex items-center justify-center ${
+                            isEpWatched
+                              ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/40 hover:bg-emerald-600/30'
+                              : 'bg-gray-800/80 text-gray-400 border-gray-700 hover:text-white hover:bg-gray-700'
+                          }`}
+                          title={isEpWatched ? 'Desmarcar como assistido' : 'Marcar episódio como assistido'}
+                        >
+                          <FiCheck className={`w-3.5 h-3.5 ${isEpWatched ? 'text-emerald-400' : 'text-gray-400'}`} />
+                        </button>
+
                         {/* Episode Download Button */}
                         <button
                           type="button"
@@ -413,7 +538,7 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
                           onClick={() => handleEpisodeClick(ep, idx)}
                           className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition shrink-0 flex items-center gap-1.5 shadow"
                         >
-                          <span>▶</span> {progressPct > 0 ? 'Resume' : 'Play'}
+                          <span>▶</span> {isEpWatched ? 'Reassistir' : progressPct > 0 ? 'Resume' : 'Play'}
                         </button>
                       </div>
                     </div>

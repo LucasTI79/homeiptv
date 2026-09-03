@@ -10,7 +10,13 @@ import {
   saveFavorite,
   removeFavorite,
   migrateFromLocalStorage,
+  getDownloadTasks,
+  getDownloadTask,
+  saveDownloadTask,
+  removeDownloadTask,
+  clearDownloadTasks,
   type OfflineProgressItem,
+  type DownloadTask,
 } from './db';
 
 describe('Offline DB (IndexedDB)', () => {
@@ -172,5 +178,61 @@ describe('Offline DB (IndexedDB)', () => {
 
     const favs = await getFavorites();
     expect(favs).toContain('legacy_fav');
+  });
+
+  it('manages download tasks in IndexedDB', async () => {
+    const task1: DownloadTask = {
+      id: 'movie_123',
+      mediaType: 'movie',
+      title: 'Inception',
+      remoteUrl: 'http://example.com/inception.mp4',
+      totalBytes: 104857600,
+      downloadedBytes: 52428800,
+      status: 'downloading',
+      createdAt: 1000,
+      fileName: 'movie_123.mp4',
+    };
+
+    const task2: DownloadTask = {
+      id: 'series_456_s01_e01',
+      mediaType: 'series',
+      seriesId: 'series_456',
+      seriesName: 'Breaking Bad',
+      season: '1',
+      episodeIndex: 0,
+      title: 'Pilot',
+      remoteUrl: 'http://example.com/bb_s1e1.mp4',
+      totalBytes: 209715200,
+      downloadedBytes: 209715200,
+      status: 'completed',
+      createdAt: 2000,
+      completedAt: 2500,
+      fileName: 'series_456_s01_e01.mp4',
+    };
+
+    await saveDownloadTask(task1);
+    await saveDownloadTask(task2);
+
+    // Retrieve single task
+    const retrieved = await getDownloadTask('movie_123');
+    expect(retrieved).not.toBeNull();
+    expect(retrieved?.title).toBe('Inception');
+    expect(retrieved?.status).toBe('downloading');
+
+    // Retrieve list (sorted by createdAt desc)
+    const list = await getDownloadTasks();
+    expect(list.length).toBe(2);
+    expect(list[0].id).toBe('series_456_s01_e01');
+    expect(list[1].id).toBe('movie_123');
+
+    // Remove single task
+    await removeDownloadTask('movie_123');
+    const afterDelete = await getDownloadTask('movie_123');
+    expect(afterDelete).toBeNull();
+
+    // Clear all
+    await clearDownloadTasks();
+    const emptyList = await getDownloadTasks();
+    expect(emptyList.length).toBe(0);
   });
 });

@@ -34,12 +34,35 @@ export interface ContentSegment {
   updatedAt: number;
 }
 
+export type DownloadStatus = 'queued' | 'downloading' | 'paused' | 'completed' | 'error';
+
+export interface DownloadTask {
+  id: string;
+  mediaType: 'movie' | 'series';
+  seriesId?: string;
+  seriesName?: string;
+  season?: string;
+  episodeIndex?: number;
+  title: string;
+  remoteUrl: string;
+  logo?: string;
+  totalBytes: number;
+  downloadedBytes: number;
+  status: DownloadStatus;
+  speedBytesPerSec?: number;
+  errorMessage?: string;
+  createdAt: number;
+  completedAt?: number;
+  fileName: string;
+}
+
 const DB_NAME = 'viniplay_offline_db';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_PROGRESS = 'vod_progress';
 const STORE_FAVORITES = 'vod_favorites';
 const STORE_FINGERPRINTS = 'series_audio_fingerprints';
 const STORE_SEGMENTS = 'content_segments';
+const STORE_DOWNLOAD_TASKS = 'download_tasks';
 const MIGRATION_FLAG_KEY = 'viniplay_idb_migrated_v1';
 
 let dbInstance: IDBDatabase | null = null;
@@ -85,6 +108,14 @@ export function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_SEGMENTS)) {
         const segStore = db.createObjectStore(STORE_SEGMENTS, { keyPath: 'id' });
         segStore.createIndex('by_seasonClusterId', 'seasonClusterId', { unique: false });
+      }
+
+      // 5. Store for Download Tasks (Offline Media Queue & Status)
+      if (!db.objectStoreNames.contains(STORE_DOWNLOAD_TASKS)) {
+        const dtStore = db.createObjectStore(STORE_DOWNLOAD_TASKS, { keyPath: 'id' });
+        dtStore.createIndex('by_status', 'status', { unique: false });
+        dtStore.createIndex('by_seriesId', 'seriesId', { unique: false });
+        dtStore.createIndex('by_createdAt', 'createdAt', { unique: false });
       }
     };
 
@@ -353,6 +384,101 @@ export async function getContentSegment(
   } catch (err) {
     console.warn('[IndexedDB] getContentSegment error:', err);
     return null;
+  }
+}
+
+export async function getDownloadTasks(): Promise<DownloadTask[]> {
+  try {
+    const db = await openDb();
+    return await new Promise<DownloadTask[]>((resolve, reject) => {
+      const tx = db.transaction(STORE_DOWNLOAD_TASKS, 'readonly');
+      const store = tx.objectStore(STORE_DOWNLOAD_TASKS);
+      const index = store.index('by_createdAt');
+      const request = index.openCursor(null, 'prev'); // Ordered by createdAt descending
+      const results: DownloadTask[] = [];
+
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+        if (cursor) {
+          results.push(cursor.value);
+          cursor.continue();
+        } else {
+          resolve(results);
+        }
+      };
+
+      request.onerror = () => {
+        reject(request.error || new Error('Failed to retrieve download tasks from IndexedDB'));
+      };
+    });
+  } catch (err) {
+    console.warn('[IndexedDB] getDownloadTasks error:', err);
+    return [];
+  }
+}
+
+export async function getDownloadTask(id: string): Promise<DownloadTask | null> {
+  try {
+    const db = await openDb();
+    return await new Promise<DownloadTask | null>((resolve, reject) => {
+      const tx = db.transaction(STORE_DOWNLOAD_TASKS, 'readonly');
+      const store = tx.objectStore(STORE_DOWNLOAD_TASKS);
+      const request = store.get(id);
+
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error || new Error('Failed to get download task from IndexedDB'));
+    });
+  } catch (err) {
+    console.warn('[IndexedDB] getDownloadTask error:', err);
+    return null;
+  }
+}
+
+export async function saveDownloadTask(task: DownloadTask): Promise<void> {
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_DOWNLOAD_TASKS, 'readwrite');
+      const store = tx.objectStore(STORE_DOWNLOAD_TASKS);
+      const request = store.put(task);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error || new Error('Failed to save download task to IndexedDB'));
+    });
+  } catch (err) {
+    console.warn('[IndexedDB] saveDownloadTask error:', err);
+  }
+}
+
+export async function removeDownloadTask(id: string): Promise<void> {
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_DOWNLOAD_TASKS, 'readwrite');
+      const store = tx.objectStore(STORE_DOWNLOAD_TASKS);
+      const request = store.delete(id);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error || new Error('Failed to delete download task from IndexedDB'));
+    });
+  } catch (err) {
+    console.warn('[IndexedDB] removeDownloadTask error:', err);
+  }
+}
+
+export async function clearDownloadTasks(): Promise<void> {
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_DOWNLOAD_TASKS, 'readwrite');
+      const store = tx.objectStore(STORE_DOWNLOAD_TASKS);
+      const request = store.clear();
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error || new Error('Failed to clear download tasks in IndexedDB'));
+    });
+  } catch (err) {
+    console.warn('[IndexedDB] clearDownloadTasks error:', err);
   }
 }
 

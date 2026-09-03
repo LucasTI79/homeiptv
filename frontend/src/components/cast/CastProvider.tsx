@@ -29,6 +29,10 @@ interface CastContextType {
   isCasting: boolean;
   isConnected: boolean;
   isPaused: boolean;
+  castCurrentTime: number;
+  castDuration: number;
+  castVolume: number;
+  castIsMuted: boolean;
   currentMedia: chrome.cast.media.Media | null;
   loadMedia: (
     url: string,
@@ -41,6 +45,9 @@ interface CastContextType {
   requestSession: () => Promise<void>;
   togglePlayPause: () => void;
   seekMedia: (deltaSeconds: number) => void;
+  seekToTime: (targetSeconds: number) => void;
+  setCastVolume: (volume: number) => void;
+  toggleCastMute: () => void;
   stopCasting: () => void;
 }
 
@@ -53,6 +60,10 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isCasting, setIsCasting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [castCurrentTime, setCastCurrentTime] = useState(0);
+  const [castDuration, setCastDuration] = useState(0);
+  const [castVolume, setCastVolumeState] = useState(1);
+  const [castIsMuted, setCastIsMuted] = useState(false);
   const [currentMedia, setCurrentMedia] = useState<chrome.cast.media.Media | null>(null);
 
   const castSessionRef = useRef<cast.framework.CastSession | null>(null);
@@ -200,6 +211,34 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsPaused(!!castPlayerRef.current?.isPaused);
       }
     );
+
+    castControllerRef.current.addEventListener(
+      cast.framework.RemotePlayerEventType.CURRENT_TIME_CHANGED,
+      () => {
+        setCastCurrentTime(castPlayerRef.current?.currentTime || 0);
+      }
+    );
+
+    castControllerRef.current.addEventListener(
+      cast.framework.RemotePlayerEventType.DURATION_CHANGED,
+      () => {
+        setCastDuration(castPlayerRef.current?.duration || 0);
+      }
+    );
+
+    castControllerRef.current.addEventListener(
+      cast.framework.RemotePlayerEventType.VOLUME_LEVEL_CHANGED,
+      () => {
+        setCastVolumeState(castPlayerRef.current?.volumeLevel ?? 1);
+      }
+    );
+
+    castControllerRef.current.addEventListener(
+      cast.framework.RemotePlayerEventType.IS_MUTED_CHANGED,
+      () => {
+        setCastIsMuted(!!castPlayerRef.current?.isMuted);
+      }
+    );
   };
 
   const handleSessionStateChange = (event: cast.framework.SessionStateEventData) => {
@@ -232,6 +271,9 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     setIsCasting(false);
     setIsConnected(false);
+    setIsPaused(false);
+    setCastCurrentTime(0);
+    setCastDuration(0);
     setCurrentMedia(null);
     currentCastState.current = { streamUrl: null, isVod: false, baseUrl: null, name: null, logo: null, seekBase: 0, duration: null };
   };
@@ -342,17 +384,57 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [settings]
   );
 
-  const seekMedia = useCallback(
-    async (deltaSeconds: number) => {
-      const state = currentCastState.current;
-      if (!isCasting || !state.isVod || !state.baseUrl) return;
+  const setCastVolume = useCallback((volume: number) => {
+    const clamped = Math.max(0, Math.min(1, volume));
+    if (castPlayerRef.current && castControllerRef.current) {
+      castPlayerRef.current.volumeLevel = clamped;
+      castControllerRef.current.setVolumeLevel();
+    } else if (castSessionRef.current) {
+      castSessionRef.current.setVolume(clamped);
+    }
+    setCastVolumeState(clamped);
+  }, []);
 
-      const elapsedInSegment = castPlayerRef.current?.currentTime || 0;
-      const newAbsolute = Math.max(0, state.seekBase + elapsedInSegment + deltaSeconds);
+  const toggleCastMute = useCallback(() => {
+    if (castControllerRef.current) {
+      castControllerRef.current.muteOrUnmute();
+    } else if (castSessionRef.current) {
+      const isMuted = castSessionRef.current.isMute();
+      castSessionRef.current.setMute(!isMuted);
+    }
+    setCastIsMuted((prev) => !prev);
+  }, []);
 
-      await loadMedia(state.baseUrl, state.name || '', state.logo || '', true, state.baseUrl, newAbsolute);
+  const seekToTime = useCallback(
+    (targetSeconds: number) => {
+      if (!isCasting) return;
+      const media = castSessionRef.current?.getMediaSession();
+      if (castPlayerRef.current && castControllerRef.current) {
+        castPlayerRef.current.currentTime = targetSeconds;
+        castControllerRef.current.seek();
+        setCastCurrentTime(targetSeconds);
+      } else if (media) {
+        const seekReq = new chrome.cast.media.SeekRequest();
+        seekReq.currentTime = targetSeconds;
+        media.seek(
+          seekReq,
+          () => setCastCurrentTime(targetSeconds),
+          (err) => console.warn('Cast seek error', err)
+        );
+      }
     },
-    [isCasting, loadMedia]
+    [isCasting]
+  );
+
+  const seekMedia = useCallback(
+    (deltaSeconds: number) => {
+      if (!isCasting) return;
+      const curr = castPlayerRef.current?.currentTime ?? castCurrentTime;
+      const dur = castPlayerRef.current?.duration ?? castDuration;
+      const target = Math.max(0, dur > 0 ? Math.min(dur, curr + deltaSeconds) : curr + deltaSeconds);
+      seekToTime(target);
+    },
+    [isCasting, castCurrentTime, castDuration, seekToTime]
   );
 
   return (
@@ -362,11 +444,18 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isCasting,
         isConnected,
         isPaused,
+        castCurrentTime,
+        castDuration,
+        castVolume,
+        castIsMuted,
         currentMedia,
         loadMedia,
         requestSession,
         togglePlayPause,
         seekMedia,
+        seekToTime,
+        setCastVolume,
+        toggleCastMute,
         stopCasting,
       }}
     >

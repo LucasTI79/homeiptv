@@ -54,7 +54,24 @@ export function PlayerPage() {
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<mpegts.Player | null>(null);
-  const { isAvailable, isCasting, isConnected, requestSession, loadMedia, togglePlayPause: castTogglePlay, stopCasting, isPaused: castIsPaused, seekMedia } = useCast();
+  const {
+    isAvailable,
+    isCasting,
+    isConnected,
+    requestSession,
+    loadMedia,
+    togglePlayPause: castTogglePlay,
+    stopCasting,
+    isPaused: castIsPaused,
+    seekMedia,
+    seekToTime,
+    castCurrentTime,
+    castDuration,
+    castVolume,
+    castIsMuted,
+    setCastVolume,
+    toggleCastMute,
+  } = useCast();
   
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -286,6 +303,10 @@ export function PlayerPage() {
   };
 
   const toggleMute = () => {
+    if (isCasting) {
+      toggleCastMute();
+      return;
+    }
     if (!videoRef.current) return;
     videoRef.current.muted = !videoRef.current.muted;
     setIsMuted(videoRef.current.muted);
@@ -304,12 +325,11 @@ export function PlayerPage() {
 
   const handleProgressBarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newTime = parseFloat(e.target.value);
-    setCurrentTime(newTime);
     if (isCasting) {
-      const delta = newTime - currentTime;
-      seekMedia(delta);
+      seekToTime(newTime);
       return;
     }
+    setCurrentTime(newTime);
     if (videoRef.current) {
       videoRef.current.currentTime = newTime;
     }
@@ -345,6 +365,10 @@ export function PlayerPage() {
   useEffect(() => {
     if (!selectedChannel) return;
     const isPaused = isCasting ? castIsPaused : !isPlaying;
+    const effectiveCurrentTime = isCasting ? castCurrentTime : currentTime;
+    const effectiveDuration = isCasting ? castDuration : duration;
+    const effectiveVolume = isCasting ? castVolume : volume;
+    const effectiveIsMuted = isCasting ? castIsMuted : isMuted;
 
     useRemoteStore.getState().syncHostPlayback({
       title: selectedChannel.name,
@@ -356,16 +380,30 @@ export function PlayerPage() {
       isVod: !!selectedChannel.isVod,
       isLive: !selectedChannel.isVod,
       isPaused,
-      currentTime,
-      duration,
-      volume,
-      isMuted,
+      currentTime: effectiveCurrentTime,
+      duration: effectiveDuration,
+      volume: effectiveVolume,
+      isMuted: effectiveIsMuted,
       seriesContext: selectedChannel.seriesContext,
       introDetection: activeIntroSegment
         ? { canSkip: true, introEnd: activeIntroSegment.endSec }
         : undefined,
     });
-  }, [selectedChannel, isCasting, castIsPaused, isPlaying, currentTime, duration, volume, isMuted, activeIntroSegment]);
+  }, [
+    selectedChannel,
+    isCasting,
+    castIsPaused,
+    castCurrentTime,
+    castDuration,
+    castVolume,
+    castIsMuted,
+    isPlaying,
+    currentTime,
+    duration,
+    volume,
+    isMuted,
+    activeIntroSegment,
+  ]);
 
   // Remote Control: Sincronização do contexto do usuário (Favoritos, Assistidos e Continuar Assistindo)
   useEffect(() => {
@@ -395,8 +433,7 @@ export function PlayerPage() {
           handleSeek(msg.payload.deltaSeconds);
         } else if (msg.payload.positionSeconds !== undefined) {
           if (isCasting) {
-            const delta = msg.payload.positionSeconds - currentTime;
-            seekMedia(delta);
+            seekToTime(msg.payload.positionSeconds);
           } else if (videoRef.current) {
             videoRef.current.currentTime = msg.payload.positionSeconds;
             setCurrentTime(msg.payload.positionSeconds);
@@ -404,11 +441,25 @@ export function PlayerPage() {
         }
       } else if (msg.type === 'COMMAND_VOLUME') {
         if (msg.payload.delta) {
-          setVolume((prev) => Math.max(0, Math.min(1, prev + msg.payload.delta!)));
+          const currentVol = isCasting ? castVolume : volume;
+          const nextVol = Math.max(0, Math.min(1, currentVol + msg.payload.delta));
+          if (isCasting) {
+            setCastVolume(nextVol);
+          } else {
+            setVolume(nextVol);
+          }
         } else if (msg.payload.setVolume !== undefined) {
-          setVolume(Math.max(0, Math.min(1, msg.payload.setVolume)));
+          if (isCasting) {
+            setCastVolume(msg.payload.setVolume);
+          } else {
+            setVolume(Math.max(0, Math.min(1, msg.payload.setVolume)));
+          }
         } else if (msg.payload.toggleMute) {
-          toggleMute();
+          if (isCasting) {
+            toggleCastMute();
+          } else {
+            toggleMute();
+          }
         }
       } else if (msg.type === 'COMMAND_PLAY_MEDIA') {
         const { id, name, url, logo, isVod, seriesContext } = msg.payload;
@@ -992,19 +1043,19 @@ export function PlayerPage() {
         )}
 
         <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/90 to-transparent z-10 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-2">
-          {selectedChannel.isVod && duration > 0 && (
+          {selectedChannel.isVod && (isCasting ? castDuration > 0 : duration > 0) && (
             <div className="flex items-center gap-3 w-full text-xs text-gray-300 font-mono">
-              <span>{formatTime(currentTime)}</span>
+              <span>{formatTime(isCasting ? castCurrentTime : currentTime)}</span>
               <input
                 type="range"
                 min="0"
-                max={duration}
+                max={isCasting ? castDuration : duration}
                 step="1"
-                value={currentTime}
+                value={isCasting ? castCurrentTime : currentTime}
                 onChange={handleProgressBarChange}
                 className="w-full accent-blue-500 cursor-pointer h-1.5 bg-gray-700 rounded-lg appearance-none"
               />
-              <span>{formatTime(duration)}</span>
+              <span>{formatTime(isCasting ? castDuration : duration)}</span>
             </div>
           )}
 
@@ -1044,9 +1095,9 @@ export function PlayerPage() {
               )}
 
               <div className="flex items-center gap-2">
-                <Tooltip content={isMuted ? 'Unmute' : 'Mute'}>
+                <Tooltip content={(isCasting ? castIsMuted : isMuted) ? 'Unmute' : 'Mute'}>
                   <button onClick={toggleMute} className="text-white hover:text-blue-400">
-                    {isMuted || volume === 0 ? (
+                    {(isCasting ? castIsMuted : isMuted) || (isCasting ? castVolume : volume) === 0 ? (
                       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" clipRule="evenodd" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" /></svg>
                     ) : (
                       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.898a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>
@@ -1056,13 +1107,17 @@ export function PlayerPage() {
                 <input
                   type="range"
                   min="0" max="1" step="0.05"
-                  value={isMuted ? 0 : volume}
+                  value={(isCasting ? castIsMuted : isMuted) ? 0 : (isCasting ? castVolume : volume)}
                   onChange={(e) => {
-                    setVolume(parseFloat(e.target.value));
-                    if (isMuted && parseFloat(e.target.value) > 0) setIsMuted(false);
+                    const newVol = parseFloat(e.target.value);
+                    if (isCasting) {
+                      setCastVolume(newVol);
+                    } else {
+                      setVolume(newVol);
+                      if (isMuted && newVol > 0) setIsMuted(false);
+                    }
                   }}
                   className="w-24 accent-blue-500"
-                  disabled={isCasting}
                 />
               </div>
             </div>

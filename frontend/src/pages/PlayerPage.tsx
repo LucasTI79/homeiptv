@@ -8,7 +8,9 @@ import { GuideTour } from '../components/ui/GuideTour';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useCast } from '../components/cast/CastProvider';
 import { usePlaybackStore } from '../store/playbackStore';
-import { FiCast, FiRotateCcw, FiRotateCw, FiPlay, FiX, FiHardDrive } from 'react-icons/fi';
+import { FiCast, FiRotateCcw, FiRotateCw, FiPlay, FiX, FiHardDrive, FiSmartphone } from 'react-icons/fi';
+import { RemotePairingModal } from '../components/remote/RemotePairingModal';
+import { useRemoteStore } from '../store/remoteStore';
 import { SkipIntroOverlay } from '../components/vod/SkipIntroOverlay';
 import { AudioFingerprintCollector } from '../services/videoIntelligence/audioFingerprinter';
 import { findIntroSegment } from '../services/videoIntelligence/audioMatcher';
@@ -62,6 +64,7 @@ export function PlayerPage() {
   const [forceDirect, setForceDirect] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
   const [isOfflineMedia, setIsOfflineMedia] = useState(false);
+  const [isPairingModalOpen, setIsPairingModalOpen] = useState(false);
 
   // Resume prompt state
   const [resumePrompt, setResumePrompt] = useState<{ time: number; formatted: string } | null>(null);
@@ -335,6 +338,97 @@ export function PlayerPage() {
       console.error('PiP failed', e);
     }
   };
+
+  // Remote Control: Sincronização do que está tocando no PC para o celular
+  useEffect(() => {
+    if (!selectedChannel) return;
+    const isPaused = isCasting ? castIsPaused : !isPlaying;
+
+    useRemoteStore.getState().syncHostPlayback({
+      title: selectedChannel.name,
+      subtitle: selectedChannel.seriesContext
+        ? `T${selectedChannel.seriesContext.season} E${selectedChannel.seriesContext.episodeIndex}`
+        : undefined,
+      logo: (selectedChannel as any).logo,
+      streamUrl: selectedChannel.url,
+      isVod: !!selectedChannel.isVod,
+      isLive: !selectedChannel.isVod,
+      isPaused,
+      currentTime,
+      duration,
+      volume,
+      isMuted,
+      seriesContext: selectedChannel.seriesContext,
+      introDetection: activeIntroSegment
+        ? { canSkip: true, introEnd: activeIntroSegment.endSec }
+        : undefined,
+    });
+  }, [selectedChannel, isCasting, castIsPaused, isPlaying, currentTime, duration, volume, isMuted, activeIntroSegment]);
+
+  // Remote Control: Execução de comandos recebidos do celular
+  useEffect(() => {
+    const unsub = useRemoteStore.getState().setHostCommandListener((msg) => {
+      if (msg.type === 'COMMAND_PLAY_PAUSE') {
+        togglePlay();
+      } else if (msg.type === 'COMMAND_SEEK') {
+        if (msg.payload.deltaSeconds) {
+          handleSeek(msg.payload.deltaSeconds);
+        } else if (msg.payload.positionSeconds !== undefined) {
+          if (isCasting) {
+            const delta = msg.payload.positionSeconds - currentTime;
+            seekMedia(delta);
+          } else if (videoRef.current) {
+            videoRef.current.currentTime = msg.payload.positionSeconds;
+            setCurrentTime(msg.payload.positionSeconds);
+          }
+        }
+      } else if (msg.type === 'COMMAND_VOLUME') {
+        if (msg.payload.delta) {
+          setVolume((prev) => Math.max(0, Math.min(1, prev + msg.payload.delta!)));
+        } else if (msg.payload.setVolume !== undefined) {
+          setVolume(Math.max(0, Math.min(1, msg.payload.setVolume)));
+        } else if (msg.payload.toggleMute) {
+          toggleMute();
+        }
+      } else if (msg.type === 'COMMAND_PLAY_MEDIA') {
+        const { id, name, url, logo, isVod, seriesContext } = msg.payload;
+        usePlaybackStore.getState().setSelectedChannel({
+          id,
+          name,
+          url,
+          logo,
+          isVod: !!isVod,
+          seriesContext,
+        } as any);
+      } else if (msg.type === 'COMMAND_SKIP_INTRO') {
+        if (activeIntroSegment) {
+          if (isCasting) {
+            seekMedia(activeIntroSegment.endSec - currentTime);
+          } else if (videoRef.current) {
+            videoRef.current.currentTime = activeIntroSegment.endSec;
+            setCurrentTime(activeIntroSegment.endSec);
+          }
+          setActiveIntroSegment(null);
+        }
+      } else if (msg.type === 'COMMAND_DPAD') {
+        const keyMap: Record<string, string> = {
+          up: 'ArrowUp',
+          down: 'ArrowDown',
+          left: 'ArrowLeft',
+          right: 'ArrowRight',
+          select: 'Enter',
+          back: 'Escape',
+          menu: 'ContextMenu',
+        };
+        const key = keyMap[msg.payload.key];
+        if (key) {
+          window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+        }
+      }
+    });
+
+    return () => unsub();
+  }, [togglePlay, handleSeek, isCasting, currentTime, seekMedia, activeIntroSegment, toggleMute]);
 
   // Helper to determine item ID in progress store
   const getProgressItemId = useCallback(() => {
@@ -972,6 +1066,15 @@ export function PlayerPage() {
                 </button>
               </Tooltip>
             )}
+            <Tooltip content="Parear Celular (Controle Remoto)">
+              <button
+                id="remote-pairing-btn"
+                onClick={() => setIsPairingModalOpen(true)}
+                className="hover:text-blue-400 cursor-pointer p-1 text-white"
+              >
+                <FiSmartphone className="w-6 h-6" />
+              </button>
+            </Tooltip>
             <Tooltip content={isPip ? 'Exit Picture-in-Picture' : 'Picture-in-Picture'}>
               <button id="pip-btn" onClick={togglePip} className="text-white hover:text-blue-400">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -988,6 +1091,11 @@ export function PlayerPage() {
         </div>
         </div>
       </div>
+
+      <RemotePairingModal
+        isOpen={isPairingModalOpen}
+        onClose={() => setIsPairingModalOpen(false)}
+      />
     </div>
   );
 }

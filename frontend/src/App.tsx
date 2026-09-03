@@ -18,6 +18,8 @@ import { NotificationPage } from './pages/notifications/NotificationPage';
 import { MultiviewPage } from './pages/multiview/MultiviewPage';
 import { AppShell } from './components/AppShell';
 import { CastProvider } from './components/cast/CastProvider';
+import { RemoteNowPlayingBar } from './components/remote/RemoteNowPlayingBar';
+import { useRemoteStore } from './store/remoteStore';
 
 function Gate() {
   const needsSetup = useNeedsSetup();
@@ -31,6 +33,20 @@ function Gate() {
       document.title = health.data.appName;
     }
   }, [health.data?.appName, setAppName]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const remoteSession = params.get('remote_session');
+    const pin = params.get('pin');
+
+    if (remoteSession) {
+      useRemoteStore.getState().connectAsClient(remoteSession, pin || undefined);
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, '', cleanUrl);
+    } else {
+      useRemoteStore.getState().checkAutoReconnect();
+    }
+  }, []);
 
   if (needsSetup.isLoading || authStatus.isLoading || health.isLoading) {
     return (
@@ -57,20 +73,23 @@ function Gate() {
   }
 
   return (
-    <Routes>
-      <Route element={<AppShell />}>
-        <Route path="/guide" element={<GuidePage />} />
-        <Route path="/player" element={<PlayerPage />} />
-        <Route path="/vod" element={<VodPage />} />
-        <Route path="/downloads" element={<DownloadsPage />} />
-        <Route path="/dvr" element={<DvrPage />} />
-        <Route path="/notifications" element={<NotificationPage />} />
-        <Route path="/multiview" element={<MultiviewPage />} />
-        <Route path="/admin" element={<AdminPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="*" element={<Navigate to="/guide" replace />} />
-      </Route>
-    </Routes>
+    <>
+      <Routes>
+        <Route element={<AppShell />}>
+          <Route path="/guide" element={<GuidePage />} />
+          <Route path="/player" element={<PlayerPage />} />
+          <Route path="/vod" element={<VodPage />} />
+          <Route path="/downloads" element={<DownloadsPage />} />
+          <Route path="/dvr" element={<DvrPage />} />
+          <Route path="/notifications" element={<NotificationPage />} />
+          <Route path="/multiview" element={<MultiviewPage />} />
+          <Route path="/admin" element={<AdminPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="*" element={<Navigate to="/guide" replace />} />
+        </Route>
+      </Routes>
+      <RemoteNowPlayingBar />
+    </>
   );
 }
 

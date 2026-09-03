@@ -157,4 +157,80 @@ describe('VodPage', () => {
     expect(screen.getByText(/Season 1/)).toBeInTheDocument();
     expect(mockNavigate).not.toHaveBeenCalled();
   });
+
+  it('clears all in-progress items when clicking Limpar Tudo', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    usePlaybackStore.setState({
+      progress: {
+        'movie_1': {
+          id: 'movie_1',
+          title: 'Test Movie',
+          type: 'movie',
+          url: 'http://example.com/movie.mp4',
+          currentTime: 50,
+          duration: 1000,
+          updatedAt: Date.now(),
+        },
+      },
+    });
+
+    renderWithProviders(<VodPage />);
+    expect(screen.getByText('Continue Watching')).toBeInTheDocument();
+
+    const clearAllBtn = screen.getByTitle('Limpar todos os itens em andamento');
+    fireEvent.click(clearAllBtn);
+
+    expect(screen.queryByText('Continue Watching')).not.toBeInTheDocument();
+  });
+
+  it('removes single item from Continue Watching on close button click', async () => {
+    usePlaybackStore.setState({
+      progress: {
+        'movie_1': {
+          id: 'movie_1',
+          title: 'Test Movie',
+          type: 'movie',
+          url: 'http://example.com/movie.mp4',
+          currentTime: 50,
+          duration: 1000,
+          updatedAt: Date.now(),
+        },
+      },
+    });
+
+    renderWithProviders(<VodPage />);
+    const removeBtn = screen.getByTitle('Remove from Continue Watching');
+    fireEvent.click(removeBtn);
+
+    expect(screen.queryByText('Continue Watching')).not.toBeInTheDocument();
+  });
+
+  it('filters catalog items when clicking Assistidos filter', async () => {
+    usePlaybackStore.setState({
+      watchedMap: {
+        '2_s1_e0': {
+          id: '2_s1_e0',
+          seriesId: '2',
+          seriesName: 'Test Series',
+          season: '1',
+          episodeIndex: 0,
+          title: 'Ep 1',
+          mediaType: 'series',
+          watchedAt: Date.now(),
+          autoMarked: true,
+        },
+      },
+    });
+
+    renderWithProviders(<VodPage />);
+    expect(screen.getByText('Test Movie')).toBeInTheDocument();
+    expect(screen.getByText('Test Series')).toBeInTheDocument();
+
+    const watchedFilterBtn = screen.getByRole('button', { name: /Assistidos/ });
+    fireEvent.click(watchedFilterBtn);
+
+    // Only Test Series is watched, Test Movie should be filtered out
+    expect(screen.getByText('Test Series')).toBeInTheDocument();
+    expect(screen.queryByText('Test Movie')).not.toBeInTheDocument();
+  });
 });

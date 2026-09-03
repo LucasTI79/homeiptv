@@ -600,8 +600,28 @@ export function VodPage() {
                         e.currentTarget.src = `https://placehold.co/400x600/1f2937/d1d5db?text=${encodeURIComponent(item.name)}`;
                       }}
                     />
-                    <div className="absolute top-2 left-2 bg-black/75 px-2 py-0.5 rounded text-[11px] font-semibold text-gray-200">
-                      {item.type === 'movie' ? 'Movie' : 'Series'}
+                    <div className="absolute top-2 left-2 flex flex-col gap-1 items-start z-10">
+                      <span className="bg-black/75 px-2 py-0.5 rounded text-[11px] font-semibold text-gray-200">
+                        {item.type === 'movie' ? 'Movie' : 'Series'}
+                      </span>
+                      {item.type === 'series' && (() => {
+                        const watchedCount = getSeriesWatchedCount(item.id);
+                        if (watchedCount > 0) {
+                          return (
+                            <span className="bg-emerald-600/90 text-white px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shadow-sm">
+                              <FiCheck className="w-3 h-3" />
+                              <span>{watchedCount} eps</span>
+                            </span>
+                          );
+                        }
+                        return null;
+                      })()}
+                      {item.type === 'movie' && (watchedMap[item.id] || watchedMap[`movie_${item.id}`]) && (
+                        <span className="bg-emerald-600/90 text-white px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shadow-sm">
+                          <FiCheck className="w-3 h-3" />
+                          <span>Assistido</span>
+                        </span>
+                      )}
                     </div>
 
                     {/* Favorite Button */}

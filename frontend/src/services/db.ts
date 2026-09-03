@@ -440,10 +440,10 @@ export async function saveDownloadTask(task: DownloadTask): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(STORE_DOWNLOAD_TASKS, 'readwrite');
       const store = tx.objectStore(STORE_DOWNLOAD_TASKS);
-      const request = store.put(task);
+      store.put(task);
 
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error || new Error('Failed to save download task to IndexedDB'));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('Failed to save download task to IndexedDB'));
     });
   } catch (err) {
     console.warn('[IndexedDB] saveDownloadTask error:', err);
@@ -456,10 +456,10 @@ export async function removeDownloadTask(id: string): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(STORE_DOWNLOAD_TASKS, 'readwrite');
       const store = tx.objectStore(STORE_DOWNLOAD_TASKS);
-      const request = store.delete(id);
+      store.delete(id);
 
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error || new Error('Failed to delete download task from IndexedDB'));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('Failed to delete download task from IndexedDB'));
     });
   } catch (err) {
     console.warn('[IndexedDB] removeDownloadTask error:', err);
@@ -472,10 +472,10 @@ export async function clearDownloadTasks(): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(STORE_DOWNLOAD_TASKS, 'readwrite');
       const store = tx.objectStore(STORE_DOWNLOAD_TASKS);
-      const request = store.clear();
+      store.clear();
 
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error || new Error('Failed to clear download tasks in IndexedDB'));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('Failed to clear download tasks in IndexedDB'));
     });
   } catch (err) {
     console.warn('[IndexedDB] clearDownloadTasks error:', err);

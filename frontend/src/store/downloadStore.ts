@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { toast } from 'react-hot-toast';
 import {
   getDownloadTasks,
   type DownloadTask,
@@ -37,11 +38,20 @@ export interface DownloadStoreState {
   cancelDownload: (id: string) => Promise<void>;
 }
 
+function requestNotificationPermission(): void {
+  if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission().catch(() => {});
+  }
+}
+
 export const useDownloadStore = create<DownloadStoreState>((set, get) => {
   const manager = DownloadManager.getInstance();
 
   // Wire DownloadManager listener to keep Zustand store reactively in sync
   manager.subscribe((updatedTask) => {
+    const prevTask = get().tasks[updatedTask.id];
+    const prevStatus = prevTask?.status;
+
     set((state) => {
       // If task was cancelled / deleted
       if (updatedTask.status === 'error' && updatedTask.errorMessage === 'Download cancelled') {
@@ -56,6 +66,32 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => {
         },
       };
     });
+
+    // Notify user on completion
+    if (prevStatus === 'downloading' && updatedTask.status === 'completed') {
+      toast.success(`Download concluído: "${updatedTask.title}" já está disponível offline!`, {
+        duration: 5000,
+        id: `download_done_${updatedTask.id}`,
+      });
+
+      // Trigger Web Notification if allowed
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        try {
+          new Notification('Download Concluído - ViniPlay', {
+            body: `"${updatedTask.title}" foi salvo e pode ser assistido sem internet!`,
+            icon: updatedTask.logo || undefined,
+          });
+        } catch {
+          // ignore notification errors
+        }
+      }
+    } else if (prevStatus === 'downloading' && updatedTask.status === 'error') {
+      toast.error(`Falha no download de "${updatedTask.title}": ${updatedTask.errorMessage || 'Erro inesperado'}`, {
+        duration: 6000,
+        id: `download_err_${updatedTask.id}`,
+      });
+    }
+
     // Refresh storage on complete or cancel
     if (updatedTask.status === 'completed' || updatedTask.status === 'error') {
       get().refreshStorage().catch(() => {});
@@ -111,6 +147,7 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => {
     },
 
     enqueueMovie: async (movie) => {
+      requestNotificationPermission();
       const task = await manager.enqueueMovie(movie);
       set((state) => ({
         tasks: { ...state.tasks, [task.id]: task },
@@ -119,6 +156,7 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => {
     },
 
     enqueueEpisode: async (episode) => {
+      requestNotificationPermission();
       const task = await manager.enqueueEpisode(episode);
       set((state) => ({
         tasks: { ...state.tasks, [task.id]: task },
@@ -127,6 +165,7 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => {
     },
 
     enqueueSeason: async (series, season, episodes) => {
+      requestNotificationPermission();
       const tasks = await manager.enqueueSeason(series, season, episodes);
       set((state) => {
         const next = { ...state.tasks };

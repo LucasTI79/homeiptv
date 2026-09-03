@@ -54,4 +54,28 @@ describe('PlayerPage', () => {
     const videoElement = document.querySelector('video');
     expect(videoElement).toBeInTheDocument();
   });
+
+  it('renders the offline badge when playing from local storage', async () => {
+    const { useUiStore } = await import('../../store/uiStore');
+    vi.mocked(useUiStore).mockImplementation((selector: any) => {
+      const store = {
+        selectedChannel: {
+          id: 'movie_123',
+          name: 'Downloaded Movie',
+          url: 'http://example.com/movie.mp4',
+          isVod: true,
+          offlineFileName: 'movie_123.mp4',
+        },
+      };
+      return selector(store);
+    });
+
+    const opfs = await import('../../services/opfsStorage');
+    vi.spyOn(opfs, 'getDownloadedFile').mockResolvedValue(new File(['video-content'], 'movie_123.mp4', { type: 'video/mp4' }));
+
+    renderWithProviders(<PlayerPage />);
+
+    expect(screen.getByText('Downloaded Movie')).toBeInTheDocument();
+    expect(await screen.findByText('Offline Local')).toBeInTheDocument();
+  });
 });

@@ -8,7 +8,7 @@ import { GuideTour } from '../components/ui/GuideTour';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useCast } from '../components/cast/CastProvider';
 import { usePlaybackStore } from '../store/playbackStore';
-import { FiCast, FiRotateCcw, FiRotateCw, FiPlay, FiX } from 'react-icons/fi';
+import { FiCast, FiRotateCcw, FiRotateCw, FiPlay, FiX, FiHardDrive } from 'react-icons/fi';
 import { SkipIntroOverlay } from '../components/vod/SkipIntroOverlay';
 import { AudioFingerprintCollector } from '../services/videoIntelligence/audioFingerprinter';
 import { findIntroSegment } from '../services/videoIntelligence/audioMatcher';
@@ -18,10 +18,12 @@ import {
   getContentSegment,
   saveContentSegment,
   getSeriesFingerprints,
-  saveSeriesFingerprint
+  saveSeriesFingerprint,
+  getDownloadTask,
 } from '../services/db';
+import { getDownloadedFile } from '../services/opfsStorage';
 
-import { VIDEO_INTELLIGENCE_CONFIG } from '../services/videoIntelligence/config';
+import { VIDEO_INTELLIGENCE_CONFIG, PLAYER_CONFIG } from '../constants';
 
 const {
   minProgressRecordSeconds: MIN_PLAYBACK_PROGRESS_RECORD_SECONDS,
@@ -29,6 +31,14 @@ const {
   nextEpisodeFallbackTriggerBeforeEndSeconds: NEXT_EPISODE_FALLBACK_TRIGGER_BEFORE_END_SECONDS,
   minVideoDurationForNextEpisodeSeconds: MIN_VIDEO_DURATION_FOR_NEXT_EPISODE_SECONDS,
 } = VIDEO_INTELLIGENCE_CONFIG.playback;
+
+const {
+  defaultVolume: DEFAULT_PLAYER_VOLUME,
+  volumeStorageKey: VOLUME_STORAGE_KEY,
+  progressIntervalMs: PROGRESS_INTERVAL_MS,
+  minResumeThresholdSeconds: MIN_RESUME_THRESHOLD_SECONDS,
+  maxResumeThresholdBeforeEndSeconds: MAX_RESUME_THRESHOLD_BEFORE_END_SECONDS,
+} = PLAYER_CONFIG;
 
 export function PlayerPage() {
   const navigate = useNavigate();
@@ -45,12 +55,13 @@ export function PlayerPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(() => parseFloat(localStorage.getItem('iptvPlayerVolume') || '0.5'));
+  const [volume, setVolume] = useState(() => parseFloat(localStorage.getItem(VOLUME_STORAGE_KEY) || String(DEFAULT_PLAYER_VOLUME)));
   const [isMuted, setIsMuted] = useState(false);
   const [isPip, setIsPip] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [forceDirect, setForceDirect] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
+  const [isOfflineMedia, setIsOfflineMedia] = useState(false);
 
   // Resume prompt state
   const [resumePrompt, setResumePrompt] = useState<{ time: number; formatted: string } | null>(null);
@@ -94,70 +105,127 @@ export function PlayerPage() {
       ? selectedChannel.url
       : `/stream?url=${encodeURIComponent(selectedChannel.url)}&profileId=${profileId}&userAgentId=${userAgentId}`;
 
-    if (useNativeVod && videoRef.current) {
-      // Native browser media element mode for VOD (mp4/mkv/hls)
-      // Provides complete file duration, accurate seeking, and native buffering
-      const video = videoRef.current;
-      video.src = streamUrlToPlay;
-      video.load();
-      Promise.resolve(video.play()).catch((e: Error | { name?: string; message?: string }) => {
-        if (e && (e.name === 'AbortError' || ('message' in e && e.message?.includes('AbortError')))) {
-          return;
-        }
-        console.error('Native VOD play error', e);
-      });
+    let isCancelled = false;
+    let localBlobUrl: string | null = null;
 
-      return () => {
+    async function initMediaPlayback() {
+      // 1. Check if media was downloaded to local OPFS
+      if (isVod && videoRef.current) {
+        let fileName = selectedChannel.offlineFileName;
+        if (!fileName) {
+          const candidateIds = [
+            selectedChannel.id,
+            `movie_${selectedChannel.id}`,
+            selectedChannel.seriesContext
+              ? `${selectedChannel.seriesContext.seriesId}_s${selectedChannel.seriesContext.season}_e${selectedChannel.seriesContext.episodeIndex}`
+              : null,
+          ].filter(Boolean) as string[];
+
+          for (const cid of candidateIds) {
+            const task = await getDownloadTask(cid);
+            if (task && task.status === 'completed') {
+              fileName = task.fileName;
+              break;
+            }
+          }
+        }
+
+        if (fileName) {
+          const localFile = await getDownloadedFile(fileName);
+          if (localFile && !isCancelled && videoRef.current) {
+            localBlobUrl = URL.createObjectURL(localFile);
+            setIsOfflineMedia(true);
+            const video = videoRef.current;
+            video.src = localBlobUrl;
+            video.load();
+            Promise.resolve(video.play()).catch((e: Error | { name?: string; message?: string }) => {
+              if (e && (e.name === 'AbortError' || ('message' in e && e.message?.includes('AbortError')))) {
+                return;
+              }
+              console.error('Offline VOD play error', e);
+            });
+            return;
+          }
+        }
+      }
+
+      setIsOfflineMedia(false);
+
+      if (useNativeVod && videoRef.current) {
+        // Native browser media element mode for VOD (mp4/mkv/hls)
+        // Provides complete file duration, accurate seeking, and native buffering
+        const video = videoRef.current;
+        video.src = streamUrlToPlay;
+        video.load();
+        Promise.resolve(video.play()).catch((e: Error | { name?: string; message?: string }) => {
+          if (e && (e.name === 'AbortError' || ('message' in e && e.message?.includes('AbortError')))) {
+            return;
+          }
+          console.error('Native VOD play error', e);
+        });
+        return;
+      }
+
+      if (mpegts.isSupported() && videoRef.current) {
+        const player = mpegts.createPlayer({
+          type: 'mse',
+          isLive: !isVod,
+          url: streamUrlToPlay,
+        }, {
+          enableStashBuffer: true,
+          stashInitialSize: isVod ? 1024 : 128,
+          liveBufferLatencyChasing: !isVod ? false : undefined,
+        });
+
+        playerRef.current = player;
+        
+        player.on(mpegts.Events.ERROR, (errorType: string, errorDetail: string) => {
+          console.warn('mpegts error:', errorType, errorDetail);
+          setPlaybackError('Stream playback error encountered.');
+        });
+
+        player.attachMediaElement(videoRef.current);
+        player.load();
+        Promise.resolve(player.play()).catch((e: Error | { name?: string; message?: string }) => {
+          if (e && (e.name === 'AbortError' || ('message' in e && e.message?.includes('AbortError')))) {
+            return;
+          }
+          console.error('Play error', e);
+        });
+      }
+    }
+
+    initMediaPlayback().catch((err) => {
+      console.warn('[PlayerPage] Playback initialization error:', err);
+    });
+
+    return () => {
+      isCancelled = true;
+      if (localBlobUrl) {
+        URL.revokeObjectURL(localBlobUrl);
+        localBlobUrl = null;
+      }
+      if (videoRef.current) {
         try {
-          video.pause();
-          video.removeAttribute('src');
-          video.load();
+          videoRef.current.pause();
+          videoRef.current.removeAttribute('src');
+          videoRef.current.load();
         } catch {
           // ignore
         }
-        playerRef.current = null;
-      };
-    }
-
-    if (mpegts.isSupported() && videoRef.current) {
-      const player = mpegts.createPlayer({
-        type: 'mse',
-        isLive: !isVod,
-        url: streamUrlToPlay,
-      }, {
-        enableStashBuffer: true,
-        stashInitialSize: isVod ? 1024 : 128,
-        liveBufferLatencyChasing: !isVod ? false : undefined,
-      });
-
-      playerRef.current = player;
-      
-      player.on(mpegts.Events.ERROR, (errorType: string, errorDetail: string) => {
-        console.warn('mpegts error:', errorType, errorDetail);
-        setPlaybackError('Stream playback error encountered.');
-      });
-
-      player.attachMediaElement(videoRef.current);
-      player.load();
-      Promise.resolve(player.play()).catch((e: Error | { name?: string; message?: string }) => {
-        if (e && (e.name === 'AbortError' || ('message' in e && e.message?.includes('AbortError')))) {
-          return;
-        }
-        console.error('Play error', e);
-      });
-
-      return () => {
+      }
+      if (playerRef.current) {
         try {
-          player.pause();
-          player.unload();
-          player.detachMediaElement();
-          player.destroy();
+          playerRef.current.pause();
+          playerRef.current.unload();
+          playerRef.current.detachMediaElement();
+          playerRef.current.destroy();
         } catch {
           // Ignore teardown errors if media element was unmounted or detached
         }
         playerRef.current = null;
-      };
-    }
+      }
+    };
   }, [selectedChannel, config, forceDirect, retryNonce]);
 
   useEffect(() => {
@@ -186,7 +254,7 @@ export function PlayerPage() {
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.volume = volume;
-      localStorage.setItem('iptvPlayerVolume', volume.toString());
+      localStorage.setItem(VOLUME_STORAGE_KEY, volume.toString());
     }
   }, [volume]);
 
@@ -288,7 +356,7 @@ export function PlayerPage() {
           videoRef.current.currentTime = selectedChannel.initialTime;
           setCurrentTime(selectedChannel.initialTime);
         }
-      } else if (saved && saved.currentTime > 10 && saved.currentTime < dur - 30) {
+      } else if (saved && saved.currentTime > MIN_RESUME_THRESHOLD_SECONDS && saved.currentTime < dur - MAX_RESUME_THRESHOLD_BEFORE_END_SECONDS) {
         // Show resume prompt
         setResumePrompt({
           time: saved.currentTime,
@@ -546,7 +614,7 @@ export function PlayerPage() {
           }
         }
       }
-    }, 2000);
+    }, PROGRESS_INTERVAL_MS);
 
     return () => clearInterval(interval);
   }, [selectedChannel, getProgressItemId, saveProgress, nextEpDismissed, nextEpCountdown, activeCreditsSegment]);
@@ -600,8 +668,16 @@ export function PlayerPage() {
       />
       
       <div className="w-full max-w-5xl bg-gray-900 rounded-lg overflow-hidden shadow-2xl relative group">
-        <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 to-transparent z-10 opacity-0 group-hover:opacity-100 transition-opacity flex justify-between">
-          <h2 className="text-white font-bold text-xl drop-shadow-md">{selectedChannel.name}</h2>
+        <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 to-transparent z-10 opacity-0 group-hover:opacity-100 transition-opacity flex justify-between items-center">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <h2 className="text-white font-bold text-xl drop-shadow-md truncate">{selectedChannel.name}</h2>
+            {isOfflineMedia && (
+              <span className="bg-emerald-600/90 text-white text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow shrink-0">
+                <FiHardDrive className="w-3.5 h-3.5" />
+                <span>Offline Local</span>
+              </span>
+            )}
+          </div>
           <button
             onClick={() => {
               navigate('/guide');

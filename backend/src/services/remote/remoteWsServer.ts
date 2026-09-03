@@ -66,10 +66,15 @@ export function setupRemoteWebSocketServer(
       }
     });
 
-    // If client connects, send initial state if available
+    // If client connects, send initial state and user context if available
     const session = await hub.getSession(sessionId);
-    if (session?.nowPlaying && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'SYNC_STATE', payload: session.nowPlaying }));
+    if (ws.readyState === WebSocket.OPEN) {
+      if (session?.nowPlaying) {
+        ws.send(JSON.stringify({ type: 'SYNC_STATE', payload: session.nowPlaying }));
+      }
+      if (session?.userContext) {
+        ws.send(JSON.stringify({ type: 'SYNC_USER_CONTEXT', payload: session.userContext }));
+      }
     }
 
     // Broadcast client count to session
@@ -93,14 +98,21 @@ export function setupRemoteWebSocketServer(
 
         if (message.type === 'REQUEST_SYNC') {
           const current = await hub.getSession(sessionId);
-          if (current?.nowPlaying && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'SYNC_STATE', payload: current.nowPlaying }));
+          if (ws.readyState === WebSocket.OPEN) {
+            if (current?.nowPlaying) {
+              ws.send(JSON.stringify({ type: 'SYNC_STATE', payload: current.nowPlaying }));
+            }
+            if (current?.userContext) {
+              ws.send(JSON.stringify({ type: 'SYNC_USER_CONTEXT', payload: current.userContext }));
+            }
           }
           return;
         }
 
         if (message.type === 'SYNC_STATE') {
           await hub.updateNowPlaying(sessionId, message.payload);
+        } else if (message.type === 'SYNC_USER_CONTEXT') {
+          await hub.updateUserContext(sessionId, message.payload);
         }
 
         // Publish to other members in the session room

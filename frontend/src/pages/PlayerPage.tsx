@@ -49,6 +49,8 @@ export function PlayerPage() {
   const { data: config } = useConfig();
   const saveProgress = usePlaybackStore((s) => s.saveProgress);
   const storedProgress = usePlaybackStore((s) => s.progress);
+  const favorites = usePlaybackStore((s) => s.favorites);
+  const watchedSummary = usePlaybackStore((s) => s.watchedSummary);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<mpegts.Player | null>(null);
@@ -365,10 +367,28 @@ export function PlayerPage() {
     });
   }, [selectedChannel, isCasting, castIsPaused, isPlaying, currentTime, duration, volume, isMuted, activeIntroSegment]);
 
+  // Remote Control: Sincronização do contexto do usuário (Favoritos, Assistidos e Continuar Assistindo)
+  useEffect(() => {
+    useRemoteStore.getState().syncHostUserContext({
+      favorites,
+      watchedSummary,
+      progress: storedProgress,
+    });
+  }, [favorites, watchedSummary, storedProgress]);
+
   // Remote Control: Execução de comandos recebidos do celular
   useEffect(() => {
     const unsub = useRemoteStore.getState().setHostCommandListener((msg) => {
-      if (msg.type === 'COMMAND_PLAY_PAUSE') {
+      if (msg.type === 'REQUEST_SYNC') {
+        const pb = usePlaybackStore.getState();
+        useRemoteStore.getState().syncHostUserContext({
+          favorites: pb.favorites,
+          watchedSummary: pb.watchedSummary,
+          progress: pb.progress,
+        });
+      } else if (msg.type === 'COMMAND_TOGGLE_FAVORITE') {
+        usePlaybackStore.getState().toggleFavorite(msg.payload.id);
+      } else if (msg.type === 'COMMAND_PLAY_PAUSE') {
         togglePlay();
       } else if (msg.type === 'COMMAND_SEEK') {
         if (msg.payload.deltaSeconds) {

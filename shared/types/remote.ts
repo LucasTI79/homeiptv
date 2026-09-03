@@ -29,12 +29,23 @@ export interface RemoteSession {
   createdAt: number;
   lastActiveAt: number;
   nowPlaying?: RemoteNowPlayingState;
+  userContext?: RemoteUserContext;
+}
+
+export interface RemoteUserContext {
+  favorites: string[];
+  watchedSummary: {
+    seriesCounts: Record<string, number>;
+    movieIds: string[];
+  };
+  progress: Record<string, any>;
 }
 
 export type RemoteDpadKey = 'up' | 'down' | 'left' | 'right' | 'select' | 'back' | 'menu';
 
 export type RemoteMessage =
   | { type: 'SYNC_STATE'; payload: RemoteNowPlayingState }
+  | { type: 'SYNC_USER_CONTEXT'; payload: RemoteUserContext }
   | { type: 'SESSION_PAIRED'; payload: { clientCount: number } }
   | { type: 'HOST_DISCONNECTED' }
   | { type: 'COMMAND_PLAY_PAUSE' }
@@ -45,6 +56,7 @@ export type RemoteMessage =
   | { type: 'COMMAND_NEXT_EPISODE' }
   | { type: 'COMMAND_DPAD'; payload: { key: RemoteDpadKey } }
   | { type: 'COMMAND_INPUT_TEXT'; payload: { text: string; submit?: boolean } }
+  | { type: 'COMMAND_TOGGLE_FAVORITE'; payload: { id: string } }
   | { type: 'REQUEST_SYNC' }
   | { type: 'PING' }
   | { type: 'PONG' };

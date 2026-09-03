@@ -102,6 +102,14 @@ export class MemoryRemoteSessionHub implements IRemoteSessionHub {
     }
   }
 
+  public async updateUserContext(sessionId: string, context: import('@homeiptv/shared-types').RemoteUserContext): Promise<void> {
+    const session = this.sessionsById.get(sessionId);
+    if (session) {
+      session.userContext = context;
+      session.lastActiveAt = Date.now();
+    }
+  }
+
   public async closeSession(sessionId: string): Promise<void> {
     const session = this.sessionsById.get(sessionId);
     if (session) {

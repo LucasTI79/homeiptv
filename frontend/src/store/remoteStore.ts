@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import type { RemoteMessage, RemoteNowPlayingState } from '@homeiptv/shared-types';
+import type { RemoteMessage, RemoteNowPlayingState, RemoteUserContext } from '@homeiptv/shared-types';
+import { usePlaybackStore } from './playbackStore';
 
 export interface RemoteStoreState {
   isPaired: boolean;
@@ -15,6 +16,7 @@ export interface RemoteStoreState {
   connectByPin: (pin: string) => Promise<boolean>;
   sendCommand: (message: RemoteMessage) => void;
   syncHostPlayback: (state: RemoteNowPlayingState) => void;
+  syncHostUserContext: (context: RemoteUserContext) => void;
   setHostCommandListener: (listener: (msg: RemoteMessage) => void) => () => void;
   disconnect: () => void;
   checkAutoReconnect: () => Promise<void>;
@@ -88,6 +90,13 @@ export const useRemoteStore = create<RemoteStoreState>((set, get) => {
         const message = JSON.parse(event.data) as RemoteMessage;
         if (message.type === 'SYNC_STATE') {
           set({ remoteNowPlaying: message.payload });
+        } else if (message.type === 'SYNC_USER_CONTEXT') {
+          usePlaybackStore.setState({
+            favorites: message.payload.favorites,
+            watchedSummary: message.payload.watchedSummary,
+            progress: message.payload.progress,
+            isHydrated: true,
+          });
         } else if (message.type === 'SESSION_PAIRED') {
           set({ clientCount: message.payload.clientCount });
         } else if (message.type === 'HOST_DISCONNECTED') {
@@ -209,6 +218,12 @@ export const useRemoteStore = create<RemoteStoreState>((set, get) => {
       if (get().role === 'host' && activeSocket && activeSocket.readyState === WebSocket.OPEN) {
         set({ remoteNowPlaying: state });
         activeSocket.send(JSON.stringify({ type: 'SYNC_STATE', payload: state }));
+      }
+    },
+
+    syncHostUserContext: (context: RemoteUserContext) => {
+      if (get().role === 'host' && activeSocket && activeSocket.readyState === WebSocket.OPEN) {
+        activeSocket.send(JSON.stringify({ type: 'SYNC_USER_CONTEXT', payload: context }));
       }
     },
 

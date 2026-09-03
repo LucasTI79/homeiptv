@@ -1,4 +1,4 @@
-import { RemoteSession, RemoteNowPlayingState, RemoteMessage } from '@homeiptv/shared-types';
+import { RemoteSession, RemoteNowPlayingState, RemoteUserContext, RemoteMessage } from '@homeiptv/shared-types';
 
 export interface IRemoteSessionHub {
   createSession(hostDeviceId: string): Promise<RemoteSession>;
@@ -6,6 +6,7 @@ export interface IRemoteSessionHub {
   getSessionByPin(pin: string): Promise<RemoteSession | null>;
   touchSession(sessionId: string): Promise<void>;
   updateNowPlaying(sessionId: string, state: RemoteNowPlayingState): Promise<void>;
+  updateUserContext(sessionId: string, context: RemoteUserContext): Promise<void>;
   closeSession(sessionId: string): Promise<void>;
 
   publishToSession(sessionId: string, message: RemoteMessage, senderSocketId?: string): Promise<void>;

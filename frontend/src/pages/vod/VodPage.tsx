@@ -630,6 +630,10 @@ export function VodPage() {
                       onClick={(e) => {
                         e.stopPropagation();
                         toggleFavorite(item.id);
+                        const { isPaired, role, sendCommand } = useRemoteStore.getState();
+                        if (isPaired && role === 'client') {
+                          sendCommand({ type: 'COMMAND_TOGGLE_FAVORITE', payload: { id: item.id } });
+                        }
                       }}
                       className={`absolute top-2 right-2 p-1.5 rounded-lg backdrop-blur-xs transition z-10 ${
                         itemFav

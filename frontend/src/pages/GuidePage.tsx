@@ -16,6 +16,8 @@ import { GuideSkeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { findNotificationForProgram } from '../api/notifications';
 import { findDvrJobForProgram } from '../api/dvr';
+import { useRemoteStore } from '../store/remoteStore';
+import { toast } from 'react-hot-toast';
 
 // Timeline constants
 const HOUR_WIDTH = 240;
@@ -237,6 +239,22 @@ export function GuidePage() {
   const showNowLine = nowLineLeft >= 0 && nowLineLeft <= timelineWidth;
 
   const handlePlayChannel = (channel: Channel) => {
+    const { isPaired, role, sendCommand } = useRemoteStore.getState();
+    if (isPaired && role === 'client') {
+      const channelName = channel.displayName || channel.name;
+      sendCommand({
+        type: 'COMMAND_PLAY_MEDIA',
+        payload: {
+          id: channel.id,
+          name: channelName,
+          url: channel.url,
+          logo: channel.logo,
+          isVod: false,
+        },
+      });
+      toast.success(`Transmitindo "${channelName}" na TV!`, { icon: '📺' });
+      return;
+    }
     setSelectedChannel({ url: channel.url, name: channel.displayName || channel.name, id: channel.id });
     navigate('/player');
   };

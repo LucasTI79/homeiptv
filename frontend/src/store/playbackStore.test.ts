@@ -149,8 +149,8 @@ describe('usePlaybackStore with IndexedDB integration', () => {
       duration: 1000,
     });
 
-    // Episode is marked as watched in memory
-    expect(usePlaybackStore.getState().isWatched('series_bb_s1_e0')).toBe(true);
+    // Count is updated in lightweight store summary
+    expect(usePlaybackStore.getState().getSeriesWatchedCount('bb')).toBe(1);
 
     // Persisted in IndexedDB watched_episodes
     const dbWatched = await db.getWatchedEpisodes();
@@ -171,11 +171,11 @@ describe('usePlaybackStore with IndexedDB integration', () => {
       autoMarked: false,
     });
 
-    expect(usePlaybackStore.getState().isWatched('ep_manual_1')).toBe(true);
+    expect(usePlaybackStore.getState().getSeriesWatchedCount('series_x')).toBe(1);
     expect(await db.isEpisodeWatched('ep_manual_1')).toBe(true);
 
-    await usePlaybackStore.getState().unmarkEpisodeWatched('ep_manual_1');
-    expect(usePlaybackStore.getState().isWatched('ep_manual_1')).toBe(false);
+    await usePlaybackStore.getState().unmarkEpisodeWatched('ep_manual_1', 'series_x');
+    expect(usePlaybackStore.getState().getSeriesWatchedCount('series_x')).toBe(0);
     expect(await db.isEpisodeWatched('ep_manual_1')).toBe(false);
   });
 
@@ -194,13 +194,13 @@ describe('usePlaybackStore with IndexedDB integration', () => {
       eps
     );
 
-    expect(usePlaybackStore.getState().isWatched('dexter_s1_e0')).toBe(true);
-    expect(usePlaybackStore.getState().isWatched('dexter_s1_e1')).toBe(true);
-    expect(usePlaybackStore.getState().isWatched('dexter_s1_e2')).toBe(true);
+    expect(await db.isEpisodeWatched('dexter_s1_e0')).toBe(true);
+    expect(await db.isEpisodeWatched('dexter_s1_e1')).toBe(true);
+    expect(await db.isEpisodeWatched('dexter_s1_e2')).toBe(true);
     expect(usePlaybackStore.getState().getSeriesWatchedCount('dexter')).toBe(3);
 
     await usePlaybackStore.getState().unmarkSeasonWatched('dexter', '1', eps);
-    expect(usePlaybackStore.getState().isWatched('dexter_s1_e0')).toBe(false);
+    expect(await db.isEpisodeWatched('dexter_s1_e0')).toBe(false);
     expect(usePlaybackStore.getState().getSeriesWatchedCount('dexter')).toBe(0);
   });
 

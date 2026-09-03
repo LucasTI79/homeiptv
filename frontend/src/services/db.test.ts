@@ -23,6 +23,7 @@ import {
   removeWatchedEpisode,
   removeWatchedEpisodesBatch,
   clearWatchedEpisodes,
+  getWatchedSummary,
   type OfflineProgressItem,
   type DownloadTask,
   type WatchedEpisodeRecord,
@@ -289,6 +290,11 @@ describe('Offline DB (IndexedDB)', () => {
     // Query all
     const all = await getWatchedEpisodes();
     expect(all.length).toBe(3);
+
+    // Query lightweight summary (for fast catalog indexing without loading full episode objects)
+    const summary = await getWatchedSummary();
+    expect(summary.seriesCounts['bb']).toBe(2);
+    expect(summary.movieIds).toContain('movie_99');
 
     // Query by series
     const bbWatched = await getWatchedEpisodesBySeries('bb');

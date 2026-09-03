@@ -4,6 +4,7 @@ import { proxiedLogoUrl, PLACEHOLDER_LOGO } from '../guide/ChannelRow';
 
 import { usePlaybackStore } from '../../store/playbackStore';
 import { useDownloadStore } from '../../store/downloadStore';
+import { getWatchedEpisodesBySeries } from '../../services/db';
 import { toast } from 'react-hot-toast';
 import {
   FiHeart,
@@ -55,12 +56,28 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
   const isFavorite = usePlaybackStore((s) => s.isFavorite(seriesId));
   const toggleFavorite = usePlaybackStore((s) => s.toggleFavorite);
   const progress = usePlaybackStore((s) => s.progress);
-  const watchedMap = usePlaybackStore((s) => s.watchedMap);
   const markEpisodeWatched = usePlaybackStore((s) => s.markEpisodeWatched);
   const unmarkEpisodeWatched = usePlaybackStore((s) => s.unmarkEpisodeWatched);
   const markSeasonWatched = usePlaybackStore((s) => s.markSeasonWatched);
   const unmarkSeasonWatched = usePlaybackStore((s) => s.unmarkSeasonWatched);
   const clearSeriesProgress = usePlaybackStore((s) => s.clearSeriesProgress);
+
+  // Load watched status on-demand for this specific series only
+  const [watchedKeys, setWatchedKeys] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    let active = true;
+    getWatchedEpisodesBySeries(seriesId)
+      .then((records) => {
+        if (active) {
+          setWatchedKeys(new Set(records.map((r) => r.id)));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [seriesId]);
 
   const tasks = useDownloadStore((s) => s.tasks);
   const initDownloads = useDownloadStore((s) => s.initDownloads);
@@ -84,7 +101,7 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
   // Watched statistics for current season
   const watchedSeasonCount = currentEpisodes.filter((_, idx) => {
     const k = `${seriesId}_s${activeSeason}_e${idx}`;
-    return !!watchedMap[k];
+    return watchedKeys.has(k);
   }).length;
   const allSeasonWatched = currentEpisodes.length > 0 && watchedSeasonCount === currentEpisodes.length;
 
@@ -100,9 +117,23 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
 
   const handleToggleSeasonWatched = async () => {
     if (allSeasonWatched) {
+      setWatchedKeys((prev) => {
+        const next = new Set(prev);
+        for (let i = 0; i < currentEpisodes.length; i++) {
+          next.delete(`${seriesId}_s${activeSeason}_e${i}`);
+        }
+        return next;
+      });
       await unmarkSeasonWatched(seriesId, activeSeason, currentEpisodes);
       toast('Temporada desmarcada como assistida');
     } else {
+      setWatchedKeys((prev) => {
+        const next = new Set(prev);
+        for (let i = 0; i < currentEpisodes.length; i++) {
+          next.add(`${seriesId}_s${activeSeason}_e${i}`);
+        }
+        return next;
+      });
       await markSeasonWatched(
         { id: seriesId, name: seriesName },
         activeSeason,
@@ -114,11 +145,21 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
 
   const handleToggleEpisodeWatched = async (ep: SeriesEpisode, idx: number) => {
     const epKey = `${seriesId}_s${activeSeason}_e${idx}`;
-    const isWatched = !!watchedMap[epKey];
+    const isWatched = watchedKeys.has(epKey);
     if (isWatched) {
-      await unmarkEpisodeWatched(epKey);
+      setWatchedKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(epKey);
+        return next;
+      });
+      await unmarkEpisodeWatched(epKey, seriesId);
       toast('Episódio desmarcado');
     } else {
+      setWatchedKeys((prev) => {
+        const next = new Set(prev);
+        next.add(epKey);
+        return next;
+      });
       await markEpisodeWatched({
         id: epKey,
         seriesId,
@@ -387,7 +428,7 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
               <div className="flex-1 overflow-y-auto space-y-2 pr-1">
                 {currentEpisodes.map((ep, idx) => {
                   const epKey = `${seriesId}_s${activeSeason}_e${idx}`;
-                  const isEpWatched = !!watchedMap[epKey];
+                  const isEpWatched = watchedKeys.has(epKey);
                   const epProgress = progress[epKey];
                   const progressPct = epProgress && epProgress.duration > 0
                     ? Math.min(100, Math.round((epProgress.currentTime / epProgress.duration) * 100))

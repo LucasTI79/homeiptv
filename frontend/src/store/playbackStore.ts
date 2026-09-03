@@ -21,7 +21,7 @@ export interface VodProgressItem {
 
 interface PlaybackState {
   progress: Record<string, VodProgressItem>;
-  watchedMap: Record<string, db.WatchedEpisodeRecord>;
+  watchedSummary: db.WatchedSummary;
   favorites: string[];   // Vod item IDs
   isHydrated: boolean;
   
@@ -36,9 +36,10 @@ interface PlaybackState {
   setFavorites: (favorites: string[]) => void;
   isFavorite: (id: string) => boolean;
 
-  // Watched History Actions
+  // Watched History Actions (Lightweight & On-Demand)
+  refreshWatchedSummary: () => Promise<void>;
   markEpisodeWatched: (record: Omit<db.WatchedEpisodeRecord, 'watchedAt'>) => Promise<void>;
-  unmarkEpisodeWatched: (id: string) => Promise<void>;
+  unmarkEpisodeWatched: (id: string, seriesId?: string) => Promise<void>;
   markSeasonWatched: (
     series: { id: string; name: string },
     season: string,
@@ -49,8 +50,8 @@ interface PlaybackState {
     season: string,
     episodes: Array<{ name: string; url: string }>
   ) => Promise<void>;
-  isWatched: (id: string) => boolean;
   getSeriesWatchedCount: (seriesId: string) => number;
+  isMovieWatched: (id: string) => boolean;
 
   // In-Progress Cleanup Actions
   clearSeriesProgress: (seriesId: string) => Promise<void>;
@@ -84,17 +85,17 @@ function loadInitialFavorites(): string[] {
 
 export const usePlaybackStore = create<PlaybackState>((set, get) => ({
   progress: loadInitialProgress(),
-  watchedMap: {},
+  watchedSummary: { seriesCounts: {}, movieIds: [] },
   favorites: loadInitialFavorites(),
   isHydrated: false,
 
   init: async () => {
     try {
       await db.migrateFromLocalStorage();
-      const [dbProgressList, dbFavorites, dbWatchedList] = await Promise.all([
+      const [dbProgressList, dbFavorites, dbWatchedSummary] = await Promise.all([
         db.getProgressList(),
         db.getFavorites(),
-        db.getWatchedEpisodes(),
+        db.getWatchedSummary(),
       ]);
 
       const progressMap: Record<string, VodProgressItem> = {};
@@ -113,15 +114,10 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
       const favSet = new Set([...dbFavorites, ...loadInitialFavorites()]);
       const finalFavs = Array.from(favSet);
 
-      const watchedMap: Record<string, db.WatchedEpisodeRecord> = {};
-      for (const w of dbWatchedList) {
-        watchedMap[w.id] = w;
-      }
-
       set({
         progress: progressMap,
         favorites: finalFavs,
-        watchedMap,
+        watchedSummary: dbWatchedSummary,
         isHydrated: true,
       });
 
@@ -221,12 +217,26 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
         autoMarked: true,
       };
 
-      set((state) => ({
-        watchedMap: {
-          ...state.watchedMap,
-          [item.id]: watchedRecord,
-        },
-      }));
+      if (item.type === 'series' && item.seriesId) {
+        set((state) => ({
+          watchedSummary: {
+            ...state.watchedSummary,
+            seriesCounts: {
+              ...state.watchedSummary.seriesCounts,
+              [item.seriesId!]: (state.watchedSummary.seriesCounts[item.seriesId!] || 0) + 1,
+            },
+          },
+        }));
+      } else if (item.type === 'movie') {
+        set((state) => ({
+          watchedSummary: {
+            ...state.watchedSummary,
+            movieIds: state.watchedSummary.movieIds.includes(item.id)
+              ? state.watchedSummary.movieIds
+              : [...state.watchedSummary.movieIds, item.id],
+          },
+        }));
+      }
 
       db.saveWatchedEpisode(watchedRecord).catch((err) => {
         console.warn('[playbackStore] Failed to save watched episode:', err);
@@ -341,27 +351,67 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
     return get().favorites.includes(id);
   },
 
+  refreshWatchedSummary: async () => {
+    try {
+      const summary = await db.getWatchedSummary();
+      set({ watchedSummary: summary });
+    } catch (err) {
+      console.warn('[playbackStore] Failed to refresh watched summary:', err);
+    }
+  },
+
   markEpisodeWatched: async (record) => {
     const fullRecord: db.WatchedEpisodeRecord = {
       ...record,
       watchedAt: Date.now(),
     };
-    set((state) => ({
-      watchedMap: {
-        ...state.watchedMap,
-        [record.id]: fullRecord,
-      },
-    }));
     await db.saveWatchedEpisode(fullRecord);
+
+    if (record.mediaType === 'series' && record.seriesId) {
+      set((state) => ({
+        watchedSummary: {
+          ...state.watchedSummary,
+          seriesCounts: {
+            ...state.watchedSummary.seriesCounts,
+            [record.seriesId!]: (state.watchedSummary.seriesCounts[record.seriesId!] || 0) + 1,
+          },
+        },
+      }));
+    } else if (record.mediaType === 'movie') {
+      set((state) => ({
+        watchedSummary: {
+          ...state.watchedSummary,
+          movieIds: state.watchedSummary.movieIds.includes(record.id)
+            ? state.watchedSummary.movieIds
+            : [...state.watchedSummary.movieIds, record.id],
+        },
+      }));
+    }
   },
 
-  unmarkEpisodeWatched: async (id) => {
-    set((state) => {
-      const next = { ...state.watchedMap };
-      delete next[id];
-      return { watchedMap: next };
-    });
+  unmarkEpisodeWatched: async (id, seriesId) => {
     await db.removeWatchedEpisode(id);
+    if (seriesId) {
+      set((state) => {
+        const curr = state.watchedSummary.seriesCounts[seriesId] || 0;
+        return {
+          watchedSummary: {
+            ...state.watchedSummary,
+            seriesCounts: {
+              ...state.watchedSummary.seriesCounts,
+              [seriesId]: Math.max(0, curr - 1),
+            },
+          },
+        };
+      });
+    } else {
+      set((state) => ({
+        watchedSummary: {
+          ...state.watchedSummary,
+          movieIds: state.watchedSummary.movieIds.filter((mId) => mId !== id && mId !== `movie_${id}`),
+        },
+      }));
+    }
   },
 
   markSeasonWatched: async (series, season, episodes) => {
@@ -378,36 +428,41 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
       autoMarked: false,
     }));
 
-    set((state) => {
-      const next = { ...state.watchedMap };
-      for (const rec of records) {
-        next[rec.id] = rec;
-      }
-      return { watchedMap: next };
-    });
-
     await db.saveWatchedEpisodesBatch(records);
+    const seriesRecords = await db.getWatchedEpisodesBySeries(series.id);
+    set((state) => ({
+      watchedSummary: {
+        ...state.watchedSummary,
+        seriesCounts: {
+          ...state.watchedSummary.seriesCounts,
+          [series.id]: seriesRecords.length,
+        },
+      },
+    }));
   },
 
   unmarkSeasonWatched: async (seriesId, season, episodes) => {
     const ids = episodes.map((_, idx) => `${seriesId}_s${season}_e${idx}`);
-    set((state) => {
-      const next = { ...state.watchedMap };
-      for (const id of ids) {
-        delete next[id];
-      }
-      return { watchedMap: next };
-    });
     await db.removeWatchedEpisodesBatch(ids);
-  },
-
-  isWatched: (id) => {
-    return !!get().watchedMap[id];
+    const seriesRecords = await db.getWatchedEpisodesBySeries(seriesId);
+    set((state) => ({
+      watchedSummary: {
+        ...state.watchedSummary,
+        seriesCounts: {
+          ...state.watchedSummary.seriesCounts,
+          [seriesId]: seriesRecords.length,
+        },
+      },
+    }));
   },
 
   getSeriesWatchedCount: (seriesId) => {
-    const watched = Object.values(get().watchedMap);
-    return watched.filter((w) => w.seriesId === seriesId).length;
+    return get().watchedSummary.seriesCounts[seriesId] || 0;
+  },
+
+  isMovieWatched: (id) => {
+    const { movieIds } = get().watchedSummary;
+    return movieIds.includes(id) || movieIds.includes(`movie_${id}`);
   },
 
   clearSeriesProgress: async (seriesId) => {

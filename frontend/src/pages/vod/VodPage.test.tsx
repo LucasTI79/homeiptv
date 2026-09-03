@@ -207,18 +207,9 @@ describe('VodPage', () => {
 
   it('filters catalog items when clicking Assistidos filter', async () => {
     usePlaybackStore.setState({
-      watchedMap: {
-        '2_s1_e0': {
-          id: '2_s1_e0',
-          seriesId: '2',
-          seriesName: 'Test Series',
-          season: '1',
-          episodeIndex: 0,
-          title: 'Ep 1',
-          mediaType: 'series',
-          watchedAt: Date.now(),
-          autoMarked: true,
-        },
+      watchedSummary: {
+        seriesCounts: { '2': 1 },
+        movieIds: [],
       },
     });
 

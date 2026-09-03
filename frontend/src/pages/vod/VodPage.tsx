@@ -37,8 +37,8 @@ export function VodPage() {
   const favorites = usePlaybackStore((s) => s.favorites);
   const toggleFavorite = usePlaybackStore((s) => s.toggleFavorite);
   const isFavorite = usePlaybackStore((s) => s.isFavorite);
-  const watchedMap = usePlaybackStore((s) => s.watchedMap);
-  const getSeriesWatchedCount = usePlaybackStore((s) => s.getSeriesWatchedCount);
+  const watchedSummary = usePlaybackStore((s) => s.watchedSummary);
+  const isMovieWatched = usePlaybackStore((s) => s.isMovieWatched);
   const tasks = useDownloadStore((s) => s.tasks);
   const enqueueMovie = useDownloadStore((s) => s.enqueueMovie);
   const initDownloads = useDownloadStore((s) => s.initDownloads);
@@ -99,11 +99,11 @@ export function VodPage() {
   const watchedItemsCount = useMemo(() => {
     return allItems.filter((item) => {
       if (item.type === 'movie') {
-        return !!watchedMap[item.id] || !!watchedMap[`movie_${item.id}`];
+        return isMovieWatched(item.id);
       }
-      return getSeriesWatchedCount(item.id) > 0;
+      return (watchedSummary.seriesCounts[item.id] || 0) > 0;
     }).length;
-  }, [allItems, watchedMap, getSeriesWatchedCount]);
+  }, [allItems, watchedSummary, isMovieWatched]);
 
   const filteredItems = useMemo(() => {
     const q = debouncedQuery.toLowerCase().trim();
@@ -113,9 +113,9 @@ export function VodPage() {
         typeMatch = favorites.includes(item.id);
       } else if (filterType === 'watched') {
         if (item.type === 'movie') {
-          typeMatch = !!watchedMap[item.id] || !!watchedMap[`movie_${item.id}`];
+          typeMatch = isMovieWatched(item.id);
         } else {
-          typeMatch = getSeriesWatchedCount(item.id) > 0;
+          typeMatch = (watchedSummary.seriesCounts[item.id] || 0) > 0;
         }
       } else if (filterType !== 'all') {
         typeMatch = item.type === filterType;
@@ -125,7 +125,7 @@ export function VodPage() {
       const searchMatch = !q || item.name.toLowerCase().includes(q);
       return typeMatch && groupMatch && searchMatch;
     });
-  }, [allItems, filterType, filterGroup, debouncedQuery, favorites, watchedMap, getSeriesWatchedCount]);
+  }, [allItems, filterType, filterGroup, debouncedQuery, favorites, watchedSummary, isMovieWatched]);
 
   const visibleItems = useMemo(() => {
     return filteredItems.slice(0, displayCount);
@@ -605,7 +605,7 @@ export function VodPage() {
                         {item.type === 'movie' ? 'Movie' : 'Series'}
                       </span>
                       {item.type === 'series' && (() => {
-                        const watchedCount = getSeriesWatchedCount(item.id);
+                        const watchedCount = watchedSummary.seriesCounts[item.id] || 0;
                         if (watchedCount > 0) {
                           return (
                             <span className="bg-emerald-600/90 text-white px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shadow-sm">
@@ -616,7 +616,7 @@ export function VodPage() {
                         }
                         return null;
                       })()}
-                      {item.type === 'movie' && (watchedMap[item.id] || watchedMap[`movie_${item.id}`]) && (
+                      {item.type === 'movie' && isMovieWatched(item.id) && (
                         <span className="bg-emerald-600/90 text-white px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shadow-sm">
                           <FiCheck className="w-3 h-3" />
                           <span>Assistido</span>

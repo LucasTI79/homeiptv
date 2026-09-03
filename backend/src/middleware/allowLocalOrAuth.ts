@@ -41,7 +41,7 @@ export function allowLocalOrAuth(castTokens: CastTokenStore = emptyCastTokenStor
       req.session = req.session || ({} as Request['session']);
       req.session.userId = tokenData.userId;
       req.session.username = 'Cast User';
-      castTokens.delete(castToken);
+      // Do not delete token immediately; media streaming issues multiple Range requests throughout playback
       return next();
     }
 

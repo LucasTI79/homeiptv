@@ -70,6 +70,84 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
     duration: null as number | null,
   });
 
+  // Keep-alive references to prevent background tab sleep / throttling in Chromium & Edge
+  const keepAliveAudioRef = useRef<HTMLAudioElement | null>(null);
+  const wakeLockRef = useRef<any>(null);
+
+  // Maintain active background status while casting so the browser never suspends the tab
+  useEffect(() => {
+    if (isCasting) {
+      // 1. Silent keep-alive audio loop:
+      // Browsers (Edge, Chrome, Safari) strictly exempt any tab playing audio from Sleeping Tabs & background throttling.
+      try {
+        if (!keepAliveAudioRef.current) {
+          // Minimal valid 1-second silent WAV base64
+          const silentWav = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+          const audio = new Audio(silentWav);
+          audio.loop = true;
+          audio.volume = 0.001; // tiny volume so browser registers active media playback
+          keepAliveAudioRef.current = audio;
+        }
+        keepAliveAudioRef.current.play().catch(() => {});
+      } catch {}
+
+      // 2. Screen Wake Lock API
+      const requestWakeLock = async () => {
+        try {
+          if ('wakeLock' in navigator && !wakeLockRef.current) {
+            wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+            wakeLockRef.current.addEventListener('release', () => {
+              wakeLockRef.current = null;
+            });
+          }
+        } catch {}
+      };
+      requestWakeLock();
+
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible' && isCasting && !wakeLockRef.current) {
+          requestWakeLock();
+        }
+      };
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+
+      return () => {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      };
+    } else {
+      // Stop keep-alive audio
+      if (keepAliveAudioRef.current) {
+        try {
+          keepAliveAudioRef.current.pause();
+          keepAliveAudioRef.current.currentTime = 0;
+        } catch {}
+      }
+      // Release wake lock
+      if (wakeLockRef.current) {
+        try {
+          wakeLockRef.current.release().catch(() => {});
+          wakeLockRef.current = null;
+        } catch {}
+      }
+    }
+  }, [isCasting]);
+
+  // Clean up on component unmount
+  useEffect(() => {
+    return () => {
+      if (keepAliveAudioRef.current) {
+        try {
+          keepAliveAudioRef.current.pause();
+        } catch {}
+      }
+      if (wakeLockRef.current) {
+        try {
+          wakeLockRef.current.release().catch(() => {});
+        } catch {}
+      }
+    };
+  }, []);
+
   useEffect(() => {
     // If the Cast SDK was already loaded before this component mounted:
     if (window.cast?.framework) {
@@ -98,7 +176,7 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const castContext = cast.framework.CastContext.getInstance();
     castContext.setOptions({
       receiverApplicationId: APPLICATION_ID,
-      autoJoinPolicy: chrome.cast.AutoJoinPolicy.TAB_AND_ORIGIN_SCOPED,
+      autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED,
     });
 
     castContext.addEventListener(

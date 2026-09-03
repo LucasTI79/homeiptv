@@ -185,15 +185,15 @@ streamRouter.post('/api/cast/generate-token', requireAuth, (req, res) => {
     }
 
     const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = Date.now() + 5 * 60 * 1000;
+    const expiresAt = Date.now() + 6 * 60 * 60 * 1000;
     activeCastTokens.set(token, { userId, streamUrl, expiresAt, createdAt: Date.now() });
 
     setTimeout(() => {
       activeCastTokens.delete(token);
       console.log(`[CAST_TOKEN] Token expired and removed: ${token.substring(0, 8)}...`);
-    }, 5 * 60 * 1000);
+    }, 6 * 60 * 60 * 1000);
 
-    console.log(`[CAST_TOKEN] Generated token for user ${userId}, expires in 5 minutes`);
+    console.log(`[CAST_TOKEN] Generated token for user ${userId}, expires in 6 hours`);
     res.json({ token });
   } catch (error) {
     console.error('[CAST_TOKEN] Error generating token:', error);

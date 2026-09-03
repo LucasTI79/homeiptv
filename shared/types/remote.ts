@@ -12,7 +12,7 @@ export interface RemoteNowPlayingState {
   isMuted: boolean;
   seriesContext?: {
     seriesId: string;
-    season: number;
+    season: string | number;
     episodeIndex: number;
     totalEpisodes?: number;
   };

@@ -392,7 +392,7 @@ export function PlayerPage() {
         }
       } else if (msg.type === 'COMMAND_PLAY_MEDIA') {
         const { id, name, url, logo, isVod, seriesContext } = msg.payload;
-        usePlaybackStore.getState().setSelectedChannel({
+        useUiStore.getState().setSelectedChannel({
           id,
           name,
           url,

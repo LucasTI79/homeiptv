@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { RemoteMessage, RemoteNowPlayingState } from '@homeiptv/shared-types';
+import type { RemoteMessage, RemoteNowPlayingState } from '@homeiptv/shared-types';
 
 export interface RemoteStoreState {
   isPaired: boolean;
@@ -133,7 +133,7 @@ export const useRemoteStore = create<RemoteStoreState>((set, get) => {
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') {
-        const { role, sessionId, connectionStatus } = get();
+        const { role, sessionId } = get();
         if (role === 'client' && sessionId) {
           if (!activeSocket || activeSocket.readyState !== WebSocket.OPEN) {
             initSocket(sessionId, 'client');

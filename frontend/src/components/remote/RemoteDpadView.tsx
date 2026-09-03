@@ -5,7 +5,6 @@ import {
   FiChevronLeft,
   FiChevronRight,
   FiCornerDownLeft,
-  FiHome,
   FiMenu,
   FiVolume2,
   FiVolumeX,
@@ -13,7 +12,7 @@ import {
   FiSend,
 } from 'react-icons/fi';
 import { useRemoteStore } from '../../store/remoteStore';
-import { RemoteDpadKey } from '@homeiptv/shared-types';
+import type { RemoteDpadKey } from '@homeiptv/shared-types';
 
 export const RemoteDpadView: React.FC = () => {
   const { sendCommand } = useRemoteStore();

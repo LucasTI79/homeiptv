@@ -83,6 +83,7 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
   const initDownloads = useDownloadStore((s) => s.initDownloads);
   const enqueueEpisode = useDownloadStore((s) => s.enqueueEpisode);
   const enqueueSeason = useDownloadStore((s) => s.enqueueSeason);
+  const cancelDownload = useDownloadStore((s) => s.cancelDownload);
 
   useEffect(() => {
     initDownloads();
@@ -104,6 +105,10 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
     return watchedKeys.has(k);
   }).length;
   const allSeasonWatched = currentEpisodes.length > 0 && watchedSeasonCount === currentEpisodes.length;
+
+  const seasonWatchedDownloadedCount = seasonEpKeys.filter(
+    (k) => tasks[k]?.status === 'completed' && watchedKeys.has(k)
+  ).length;
 
   // Check if series has in-progress episodes in Continue Watching
   const seriesHasProgress = Object.values(progress).some(
@@ -197,7 +202,14 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
     const epKey = `${seriesId}_s${activeSeason}_e${idx}`;
     const epTask = tasks[epKey];
     if (epTask?.status === 'completed') {
-      toast('Este episódio já foi baixado!');
+      if (
+        window.confirm(
+          `Deseja remover o download offline do episódio "${ep.name || `Episódio ${idx + 1}`}" para liberar espaço?`
+        )
+      ) {
+        await cancelDownload(epKey);
+        toast.success('Download do episódio removido!');
+      }
       return;
     }
     if (epTask?.status === 'downloading' || epTask?.status === 'queued') {
@@ -420,6 +432,26 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
                         <span>Baixar Temporada ({currentEpisodes.length})</span>
                       </button>
                     )}
+
+                    {seasonWatchedDownloadedCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const toDelete = seasonEpKeys.filter((k) => tasks[k]?.status === 'completed' && watchedKeys.has(k));
+                          if (window.confirm(`Excluir ${toDelete.length} episódios baixados e já assistidos da Temporada ${activeSeason}?`)) {
+                            for (const k of toDelete) {
+                              await cancelDownload(k);
+                            }
+                            toast.success(`${toDelete.length} episódios assistidos excluídos do disco!`);
+                          }
+                        }}
+                        className="px-2.5 py-1.5 bg-rose-600/15 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 shrink-0 shadow"
+                        title="Excluir do dispositivo apenas os episódios desta temporada que você já assistiu"
+                      >
+                        <FiTrash2 className="w-3.5 h-3.5" />
+                        <span>Excluir Assistidos ({seasonWatchedDownloadedCount})</span>
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -554,7 +586,7 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
                           }`}
                           title={
                             isEpDownloaded
-                              ? 'Episódio já baixado para assistir offline'
+                              ? 'Episódio baixado offline (clique para remover download)'
                               : isEpDownloading
                               ? `Baixando episódio (${downloadPct}%)`
                               : isEpQueued

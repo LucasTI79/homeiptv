@@ -2,7 +2,10 @@ import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDownloadStore } from '../../store/downloadStore';
 import { useUiStore } from '../../store/uiStore';
+import { usePlaybackStore } from '../../store/playbackStore';
+import { getWatchedEpisodesBySeries, type DownloadTask } from '../../services/db';
 import { proxiedLogoUrl } from '../../components/guide/ChannelRow';
+import { toast } from 'react-hot-toast';
 import {
   FiDownload,
   FiPlay,
@@ -13,8 +16,8 @@ import {
   FiClock,
   FiAlertCircle,
   FiRefreshCw,
+  FiCheck,
 } from 'react-icons/fi';
-import { type DownloadTask } from '../../services/db';
 
 function formatBytes(bytes: number): string {
   if (!bytes || bytes <= 0) return '0 B';
@@ -35,6 +38,10 @@ export function DownloadsPage() {
   const pauseDownload = useDownloadStore((s) => s.pauseDownload);
   const resumeDownload = useDownloadStore((s) => s.resumeDownload);
   const cancelDownload = useDownloadStore((s) => s.cancelDownload);
+
+  const isMovieWatched = usePlaybackStore((s) => s.isMovieWatched);
+  const watchedSummary = usePlaybackStore((s) => s.watchedSummary);
+  const [watchedEpisodesSet, setWatchedEpisodesSet] = useState<Set<string>>(new Set());
 
   const [activeTab, setActiveTab] = useState<'completed' | 'queue'>('completed');
 
@@ -93,6 +100,77 @@ export function DownloadsPage() {
     return Object.entries(seriesMap);
   }, [completedTasks]);
 
+  // Load watched status on-demand only for series currently downloaded
+  useEffect(() => {
+    const seriesIds = completedSeriesGrouped.map(([sId]) => sId);
+    if (seriesIds.length === 0) {
+      setWatchedEpisodesSet(new Set());
+      return;
+    }
+
+    let active = true;
+    Promise.all(seriesIds.map((sId) => getWatchedEpisodesBySeries(sId))).then((results) => {
+      if (active) {
+        const set = new Set<string>();
+        for (const list of results) {
+          for (const item of list) {
+            set.add(item.id);
+          }
+        }
+        setWatchedEpisodesSet(set);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [completedSeriesGrouped, watchedSummary]);
+
+  // Find all watched downloaded tasks (both movies and series episodes)
+  const watchedDownloadedTasks = useMemo(() => {
+    return completedTasks.filter((task) => {
+      if (task.mediaType === 'movie') {
+        return isMovieWatched(task.id);
+      }
+      return watchedEpisodesSet.has(task.id);
+    });
+  }, [completedTasks, isMovieWatched, watchedEpisodesSet]);
+
+  const watchedBytesTotal = useMemo(() => {
+    return watchedDownloadedTasks.reduce((acc, t) => acc + (t.downloadedBytes || 0), 0);
+  }, [watchedDownloadedTasks]);
+
+  const handleDeleteAllWatched = async () => {
+    if (watchedDownloadedTasks.length === 0) return;
+    const msg = `Deseja excluir ${watchedDownloadedTasks.length} ${
+      watchedDownloadedTasks.length === 1 ? 'mídia já assistida' : 'mídias já assistidas'
+    }? Isso liberará aproximadamente ${formatBytes(watchedBytesTotal)} de espaço no dispositivo.`;
+
+    if (window.confirm(msg)) {
+      for (const task of watchedDownloadedTasks) {
+        await cancelDownload(task.id);
+      }
+      toast.success(`${watchedDownloadedTasks.length} itens assistidos excluídos com sucesso!`);
+    }
+  };
+
+  const handleDeleteSeriesWatched = async (seriesName: string, episodes: DownloadTask[]) => {
+    const watchedEps = episodes.filter((ep) => watchedEpisodesSet.has(ep.id));
+    if (watchedEps.length === 0) return;
+    const bytes = watchedEps.reduce((acc, ep) => acc + (ep.downloadedBytes || 0), 0);
+
+    if (
+      window.confirm(
+        `Excluir ${watchedEps.length} episódios já assistidos de "${seriesName}"? Liberará aproximadamente ${formatBytes(bytes)}.`
+      )
+    ) {
+      for (const ep of watchedEps) {
+        await cancelDownload(ep.id);
+      }
+      toast.success(`${watchedEps.length} episódios assistidos de "${seriesName}" excluídos!`);
+    }
+  };
+
   const handlePlayMedia = (task: DownloadTask) => {
     setSelectedChannel({
       id: task.id,
@@ -126,7 +204,19 @@ export function DownloadsPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {watchedDownloadedTasks.length > 0 && activeTab === 'completed' && (
+              <button
+                type="button"
+                onClick={handleDeleteAllWatched}
+                className="px-3 py-1.5 bg-rose-600/15 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-sm"
+                title={`Excluir todos os ${watchedDownloadedTasks.length} arquivos já assistidos e liberar ${formatBytes(watchedBytesTotal)}`}
+              >
+                <FiTrash2 className="w-3.5 h-3.5" />
+                <span>Excluir Assistidos ({watchedDownloadedTasks.length})</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => {
@@ -238,9 +328,17 @@ export function DownloadsPage() {
                               )}`;
                             }}
                           />
-                          <div className="absolute top-2 left-2 bg-black/80 px-2 py-0.5 rounded text-[10px] font-semibold text-emerald-400 flex items-center gap-1">
-                            <FiCheckCircle className="w-3 h-3" />
-                            <span>Offline</span>
+                          <div className="absolute top-2 left-2 flex flex-col gap-1 items-start z-10">
+                            <div className="bg-black/80 px-2 py-0.5 rounded text-[10px] font-semibold text-emerald-400 flex items-center gap-1">
+                              <FiCheckCircle className="w-3 h-3" />
+                              <span>Offline</span>
+                            </div>
+                            {isMovieWatched(movie.id) && (
+                              <div className="bg-emerald-600/90 text-white px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shadow-sm">
+                                <FiCheck className="w-3 h-3" />
+                                <span>Assistido</span>
+                              </div>
+                            )}
                           </div>
 
                           <div className="absolute inset-0 bg-blue-600/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
@@ -271,13 +369,17 @@ export function DownloadsPage() {
                               className="text-xs text-blue-400 hover:text-blue-300 font-semibold flex items-center gap-1"
                             >
                               <FiPlay className="w-3 h-3" />
-                              <span>Assistir</span>
+                              <span>{isMovieWatched(movie.id) ? 'Reassistir' : 'Assistir'}</span>
                             </button>
                             <button
                               type="button"
                               onClick={() => cancelDownload(movie.id)}
-                              className="text-gray-400 hover:text-rose-400 p-1 rounded transition"
-                              title="Excluir arquivo do dispositivo"
+                              className={`p-1 rounded transition ${
+                                isMovieWatched(movie.id)
+                                  ? 'text-rose-400 hover:text-rose-300 hover:bg-rose-500/20'
+                                  : 'text-gray-400 hover:text-rose-400'
+                              }`}
+                              title={isMovieWatched(movie.id) ? 'Excluir filme assistido do dispositivo' : 'Excluir arquivo do dispositivo'}
                             >
                               <FiTrash2 className="w-3.5 h-3.5" />
                             </button>
@@ -300,71 +402,122 @@ export function DownloadsPage() {
                   </h2>
 
                   <div className="space-y-4">
-                    {completedSeriesGrouped.map(([sId, group]) => (
-                      <div
-                        key={sId}
-                        className="bg-gray-800/80 border border-gray-700/70 rounded-2xl p-4 sm:p-5 space-y-4 shadow-lg"
-                      >
-                        <div className="flex items-center gap-3">
-                          <img
-                            src={proxiedLogoUrl(group.logo)}
-                            alt={group.seriesName}
-                            className="w-12 h-16 object-cover rounded-lg bg-gray-900 border border-gray-700 shrink-0"
-                            onError={(e) => {
-                              e.currentTarget.src = `https://placehold.co/100x150/1f2937/d1d5db?text=${encodeURIComponent(
-                                group.seriesName
-                              )}`;
-                            }}
-                          />
-                          <div>
-                            <h3 className="font-bold text-base text-white">{group.seriesName}</h3>
-                            <p className="text-xs text-gray-400">
-                              {group.episodes.length} episódios disponíveis para assistir offline
-                            </p>
-                          </div>
-                        </div>
+                    {completedSeriesGrouped.map(([sId, group]) => {
+                      const seriesWatchedCount = group.episodes.filter((ep) => watchedEpisodesSet.has(ep.id)).length;
+                      const allDownloadedWatched = group.episodes.length > 0 && seriesWatchedCount === group.episodes.length;
 
-                        {/* Episodes Grid */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                          {group.episodes.map((ep) => (
-                            <div
-                              key={ep.id}
-                              className="bg-gray-900/60 border border-gray-700/60 rounded-xl p-3 flex justify-between items-center hover:border-gray-600 transition"
-                            >
-                              <div className="min-w-0 pr-2">
-                                <span className="text-[10px] font-semibold text-blue-400 bg-blue-900/30 px-1.5 py-0.5 rounded">
-                                  T{ep.season || 1} E{((ep.episodeIndex ?? 0) + 1)}
-                                </span>
-                                <h4 className="text-xs font-semibold text-white truncate mt-1" title={ep.title}>
-                                  {ep.title}
-                                </h4>
-                                <p className="text-[10px] text-gray-400 mt-0.5">
-                                  {formatBytes(ep.downloadedBytes)}
+                      return (
+                        <div
+                          key={sId}
+                          className="bg-gray-800/80 border border-gray-700/70 rounded-2xl p-4 sm:p-5 space-y-4 shadow-lg"
+                        >
+                          <div className="flex items-center justify-between flex-wrap gap-3">
+                            <div className="flex items-center gap-3">
+                              <img
+                                src={proxiedLogoUrl(group.logo)}
+                                alt={group.seriesName}
+                                className="w-12 h-16 object-cover rounded-lg bg-gray-900 border border-gray-700 shrink-0"
+                                onError={(e) => {
+                                  e.currentTarget.src = `https://placehold.co/100x150/1f2937/d1d5db?text=${encodeURIComponent(
+                                    group.seriesName
+                                  )}`;
+                                }}
+                              />
+                              <div>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h3 className="font-bold text-base text-white">{group.seriesName}</h3>
+                                  {allDownloadedWatched ? (
+                                    <span className="text-[11px] bg-emerald-900/40 text-emerald-400 border border-emerald-500/40 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1">
+                                      <FiCheck className="w-3 h-3" />
+                                      <span>Todos assistidos</span>
+                                    </span>
+                                  ) : seriesWatchedCount > 0 ? (
+                                    <span className="text-[11px] bg-gray-700/70 text-gray-300 px-2 py-0.5 rounded-full font-medium">
+                                      {seriesWatchedCount} de {group.episodes.length} assistidos
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <p className="text-xs text-gray-400 mt-0.5">
+                                  {group.episodes.length} episódios disponíveis para assistir offline
                                 </p>
                               </div>
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() => handlePlayMedia(ep)}
-                                  className="p-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition"
-                                  title="Reproduzir episódio"
-                                >
-                                  <FiPlay className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => cancelDownload(ep.id)}
-                                  className="p-2 bg-gray-800 hover:bg-rose-500/20 text-gray-400 hover:text-rose-400 rounded-lg transition border border-gray-700"
-                                  title="Excluir episódio"
-                                >
-                                  <FiTrash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
                             </div>
-                          ))}
+
+                            {seriesWatchedCount > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSeriesWatched(group.seriesName, group.episodes)}
+                                className="px-3 py-1.5 text-xs text-rose-300 hover:text-white bg-rose-500/15 hover:bg-rose-600 border border-rose-500/30 rounded-lg transition flex items-center gap-1.5 shadow-sm font-semibold"
+                                title={`Excluir os ${seriesWatchedCount} episódios já assistidos de ${group.seriesName}`}
+                              >
+                                <FiTrash2 className="w-3.5 h-3.5" />
+                                <span>Excluir {seriesWatchedCount} assistidos</span>
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Episodes Grid */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                            {group.episodes.map((ep) => {
+                              const isEpWatched = watchedEpisodesSet.has(ep.id);
+
+                              return (
+                                <div
+                                  key={ep.id}
+                                  className={`bg-gray-900/60 border rounded-xl p-3 flex justify-between items-center transition ${
+                                    isEpWatched
+                                      ? 'border-emerald-900/50 bg-gray-900/40 opacity-80 hover:opacity-100'
+                                      : 'border-gray-700/60 hover:border-gray-600'
+                                  }`}
+                                >
+                                  <div className="min-w-0 pr-2">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="text-[10px] font-semibold text-blue-400 bg-blue-900/30 px-1.5 py-0.5 rounded">
+                                        T{ep.season || 1} E{((ep.episodeIndex ?? 0) + 1)}
+                                      </span>
+                                      {isEpWatched && (
+                                        <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/70 border border-emerald-500/40 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                          <FiCheck className="w-2.5 h-2.5" />
+                                          <span>Assistido</span>
+                                        </span>
+                                      )}
+                                    </div>
+                                    <h4 className="text-xs font-semibold text-white truncate mt-1" title={ep.title}>
+                                      {ep.title}
+                                    </h4>
+                                    <p className="text-[10px] text-gray-400 mt-0.5">
+                                      {formatBytes(ep.downloadedBytes)}
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => handlePlayMedia(ep)}
+                                      className="p-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition"
+                                      title={isEpWatched ? 'Reassistir episódio' : 'Reproduzir episódio'}
+                                    >
+                                      <FiPlay className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => cancelDownload(ep.id)}
+                                      className={`p-2 rounded-lg transition border ${
+                                        isEpWatched
+                                          ? 'bg-rose-500/10 hover:bg-rose-600 text-rose-300 hover:text-white border-rose-500/30'
+                                          : 'bg-gray-800 hover:bg-rose-500/20 text-gray-400 hover:text-rose-400 border-gray-700'
+                                      }`}
+                                      title={isEpWatched ? 'Excluir episódio assistido' : 'Excluir episódio'}
+                                    >
+                                      <FiTrash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}

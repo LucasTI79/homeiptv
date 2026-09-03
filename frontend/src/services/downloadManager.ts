@@ -23,10 +23,25 @@ import {
 
 export type DownloadListener = (task: DownloadTask) => void;
 
+const STORAGE_KEY_CONCURRENCY = 'viniplay_max_download_concurrency';
+
+function loadSavedConcurrency(): number {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_CONCURRENCY) : null;
+    if (raw) {
+      const parsed = parseInt(raw, 10);
+      if (!isNaN(parsed) && parsed >= 1 && parsed <= 5) {
+        return parsed;
+      }
+    }
+  } catch {}
+  return 2;
+}
+
 export class DownloadManager {
   private static instance: DownloadManager | null = null;
 
-  private maxConcurrency = 1;
+  private maxConcurrency = loadSavedConcurrency();
   private activeTasks = new Set<string>();
   private abortControllers = new Map<string, AbortController>();
   private listeners = new Set<DownloadListener>();
@@ -46,6 +61,21 @@ export class DownloadManager {
       DownloadManager.instance = new DownloadManager();
     }
     return DownloadManager.instance;
+  }
+
+  public getMaxConcurrency(): number {
+    return this.maxConcurrency;
+  }
+
+  public setMaxConcurrency(concurrency: number): void {
+    const clamped = Math.max(1, Math.min(5, Math.floor(concurrency)));
+    this.maxConcurrency = clamped;
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(STORAGE_KEY_CONCURRENCY, String(clamped));
+      }
+    } catch {}
+    this.processQueue().catch(() => {});
   }
 
   public subscribe(listener: DownloadListener): () => void {

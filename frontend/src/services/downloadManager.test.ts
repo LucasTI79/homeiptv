@@ -120,4 +120,19 @@ describe('DownloadManager', () => {
     const currentTask = await manager.getTask(task.id);
     expect(currentTask).toBeNull();
   });
+
+  it('configures and clamps maxConcurrency with localStorage persistence', () => {
+    const manager = DownloadManager.getInstance();
+    manager.setMaxConcurrency(3);
+    expect(manager.getMaxConcurrency()).toBe(3);
+    expect(localStorage.getItem('viniplay_max_download_concurrency')).toBe('3');
+
+    // Clamps below 1
+    manager.setMaxConcurrency(0);
+    expect(manager.getMaxConcurrency()).toBe(1);
+
+    // Clamps above 5
+    manager.setMaxConcurrency(10);
+    expect(manager.getMaxConcurrency()).toBe(5);
+  });
 });

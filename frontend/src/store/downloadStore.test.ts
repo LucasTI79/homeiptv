@@ -71,4 +71,10 @@ describe('useDownloadStore', () => {
     const isQueuedOrDownloading = useDownloadStore.getState().isDownloadingOrQueued('movie_test');
     expect(isQueuedOrDownloading).toBe(true);
   });
+
+  it('updates maxConcurrency in state and in manager', () => {
+    const store = useDownloadStore.getState();
+    store.setMaxConcurrency(4);
+    expect(useDownloadStore.getState().maxConcurrency).toBe(4);
+  });
 });

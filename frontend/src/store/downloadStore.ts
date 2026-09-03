@@ -11,10 +11,12 @@ export interface DownloadStoreState {
   tasks: Record<string, DownloadTask>;
   isInitialized: boolean;
   storageUsage: { usedBytes: number; quotaBytes: number };
+  maxConcurrency: number;
 
   // Actions
   initDownloads: () => Promise<void>;
   refreshStorage: () => Promise<void>;
+  setMaxConcurrency: (n: number) => void;
   getTask: (id: string) => DownloadTask | undefined;
   isDownloaded: (id: string) => boolean;
   isDownloadingOrQueued: (id: string) => boolean;
@@ -102,6 +104,12 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => {
     tasks: {},
     isInitialized: false,
     storageUsage: { usedBytes: 0, quotaBytes: 0 },
+    maxConcurrency: manager.getMaxConcurrency(),
+
+    setMaxConcurrency: (n: number) => {
+      manager.setMaxConcurrency(n);
+      set({ maxConcurrency: manager.getMaxConcurrency() });
+    },
 
     initDownloads: async () => {
       try {
@@ -117,6 +125,7 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => {
           tasks: map,
           isInitialized: true,
           storageUsage: estimate,
+          maxConcurrency: manager.getMaxConcurrency(),
         });
       } catch (err) {
         console.warn('[downloadStore] Initialization error:', err);

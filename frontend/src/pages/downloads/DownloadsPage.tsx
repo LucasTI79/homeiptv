@@ -38,6 +38,8 @@ export function DownloadsPage() {
   const pauseDownload = useDownloadStore((s) => s.pauseDownload);
   const resumeDownload = useDownloadStore((s) => s.resumeDownload);
   const cancelDownload = useDownloadStore((s) => s.cancelDownload);
+  const maxConcurrency = useDownloadStore((s) => s.maxConcurrency);
+  const setMaxConcurrency = useDownloadStore((s) => s.setMaxConcurrency);
 
   const isMovieWatched = usePlaybackStore((s) => s.isMovieWatched);
   const watchedSummary = usePlaybackStore((s) => s.watchedSummary);
@@ -250,32 +252,59 @@ export function DownloadsPage() {
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-2 border-b border-gray-700 pt-2">
-          <button
-            type="button"
-            onClick={() => setActiveTab('completed')}
-            className={`px-4 py-2 text-sm font-semibold border-b-2 transition flex items-center gap-2 ${
-              activeTab === 'completed'
-                ? 'border-blue-500 text-blue-400'
-                : 'border-transparent text-gray-400 hover:text-gray-200'
-            }`}
-          >
-            <FiCheckCircle className="w-4 h-4" />
-            <span>Baixados ({completedTasks.length})</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('queue')}
-            className={`px-4 py-2 text-sm font-semibold border-b-2 transition flex items-center gap-2 ${
-              activeTab === 'queue'
-                ? 'border-blue-500 text-blue-400'
-                : 'border-transparent text-gray-400 hover:text-gray-200'
-            }`}
-          >
-            <FiClock className="w-4 h-4" />
-            <span>Fila ({queueTasks.length})</span>
-          </button>
+        {/* Tabs & Concurrency Selector */}
+        <div className="flex justify-between items-center border-b border-gray-700 pt-2 flex-wrap gap-3">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('completed')}
+              className={`px-4 py-2 text-sm font-semibold border-b-2 transition flex items-center gap-2 ${
+                activeTab === 'completed'
+                  ? 'border-blue-500 text-blue-400'
+                  : 'border-transparent text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              <FiCheckCircle className="w-4 h-4" />
+              <span>Baixados ({completedTasks.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('queue')}
+              className={`px-4 py-2 text-sm font-semibold border-b-2 transition flex items-center gap-2 ${
+                activeTab === 'queue'
+                  ? 'border-blue-500 text-blue-400'
+                  : 'border-transparent text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              <FiClock className="w-4 h-4" />
+              <span>Fila ({queueTasks.length})</span>
+            </button>
+          </div>
+
+          {/* Concurrency Selector */}
+          <div className="flex items-center gap-2 pb-1.5 text-xs text-gray-300">
+            <span className="text-gray-400 font-medium">Downloads simultâneos:</span>
+            <div className="flex bg-gray-900/90 border border-gray-700/70 rounded-lg p-0.5 gap-0.5 shadow-inner">
+              {[1, 2, 3, 4, 5].map((num) => (
+                <button
+                  key={num}
+                  type="button"
+                  onClick={() => {
+                    setMaxConcurrency(num);
+                    toast.success(`Downloads simultâneos configurados para ${num}!`);
+                  }}
+                  className={`w-6 h-6 rounded font-bold transition text-xs flex items-center justify-center ${
+                    maxConcurrency === num
+                      ? 'bg-blue-600 text-white shadow'
+                      : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                  }`}
+                  title={`${num} download${num > 1 ? 's' : ''} simultâneo${num > 1 ? 's' : ''}`}
+                >
+                  {num}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 

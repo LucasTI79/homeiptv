@@ -36,6 +36,22 @@ describe('DownloadsPage', () => {
     expect(screen.getByText('Nenhum download concluído ainda')).toBeInTheDocument();
   });
 
+  it('renders concurrency selector and allows changing maxConcurrency', () => {
+    const setConcurrencySpy = vi.fn();
+    useDownloadStore.setState({
+      maxConcurrency: 2,
+      setMaxConcurrency: setConcurrencySpy,
+    });
+
+    renderWithProviders(<DownloadsPage />);
+
+    expect(screen.getByText('Downloads simultâneos:')).toBeInTheDocument();
+    const btn3 = screen.getByTitle('3 downloads simultâneos');
+    fireEvent.click(btn3);
+
+    expect(setConcurrencySpy).toHaveBeenCalledWith(3);
+  });
+
   it('displays completed movies and marks watched movies with badge and Reassistir', () => {
     usePlaybackStore.setState({
       watchedSummary: {

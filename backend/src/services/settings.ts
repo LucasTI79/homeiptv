@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import type { Settings, FfmpegLogLevel } from '@viniplay/shared-types';
+import type { Settings, FfmpegLogLevel } from '@homeiptv/shared-types';
 import { env } from '../config/env';
 
 // Settings live in a JSON file, not a DB table (ported as-is from server.js:76-90,
@@ -43,11 +43,11 @@ export const defaultSettings: Settings = {
     ],
   },
   castProfiles: [
-    { id: 'cast-default', name: 'Cast Default (CPU)', command: '-user_agent "{userAgent}" -i "{streamUrl}" -c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 128k -movflags frag_keyframe+empty_moov+default_base_moof -f mp4 pipe:1', isDefault: true },
-    { id: 'cast-nvidia', name: 'Cast (NVIDIA NVENC)', command: '-user_agent "{userAgent}" -i "{streamUrl}" -c:v h264_nvenc -preset p6 -tune hq -c:a aac -b:a 128k -movflags frag_keyframe+empty_moov+default_base_moof -f mp4 pipe:1', isDefault: false },
-    { id: 'cast-intel', name: 'Cast (Intel QSV)', command: '-hwaccel qsv -c:v h264_qsv -i "{streamUrl}" -c:v h264_qsv -preset medium -c:a aac -b:a 128k -movflags frag_keyframe+empty_moov+default_base_moof -f mp4 pipe:1', isDefault: false },
-    { id: 'cast-vaapi', name: 'Cast (VA-API Intel)', command: '-hwaccel vaapi -hwaccel_output_format vaapi -i "{streamUrl}" -vf "format=nv12|vaapi,hwupload" -c:v h264_vaapi -c:a aac -b:a 128k -movflags frag_keyframe+empty_moov+default_base_moof -f mp4 pipe:1', isDefault: false },
-    { id: 'cast-vaapi-amd', name: 'Cast (VA-API Radeon/AMD)', command: '-vaapi_device /dev/dri/renderD128 -hwaccel vaapi -hwaccel_output_format vaapi -i "{streamUrl}" -c:v h264_vaapi -c:a aac -b:a 128k -movflags frag_keyframe+empty_moov+default_base_moof -f mp4 pipe:1', isDefault: false },
+    { id: 'cast-default', name: 'Cast Default (CPU)', command: '-user_agent "{userAgent}" -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -i "{streamUrl}" -c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 128k -movflags frag_keyframe+empty_moov+default_base_moof -f mp4 pipe:1', isDefault: true },
+    { id: 'cast-nvidia', name: 'Cast (NVIDIA NVENC)', command: '-user_agent "{userAgent}" -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -i "{streamUrl}" -c:v h264_nvenc -preset p6 -tune hq -c:a aac -b:a 128k -movflags frag_keyframe+empty_moov+default_base_moof -f mp4 pipe:1', isDefault: false },
+    { id: 'cast-intel', name: 'Cast (Intel QSV)', command: '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -hwaccel qsv -c:v h264_qsv -i "{streamUrl}" -c:v h264_qsv -preset medium -c:a aac -b:a 128k -movflags frag_keyframe+empty_moov+default_base_moof -f mp4 pipe:1', isDefault: false },
+    { id: 'cast-vaapi', name: 'Cast (VA-API Intel)', command: '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -hwaccel vaapi -hwaccel_output_format vaapi -i "{streamUrl}" -vf "format=nv12|vaapi,hwupload" -c:v h264_vaapi -c:a aac -b:a 128k -movflags frag_keyframe+empty_moov+default_base_moof -f mp4 pipe:1', isDefault: false },
+    { id: 'cast-vaapi-amd', name: 'Cast (VA-API Radeon/AMD)', command: '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -vaapi_device /dev/dri/renderD128 -hwaccel vaapi -hwaccel_output_format vaapi -i "{streamUrl}" -c:v h264_vaapi -c:a aac -b:a 128k -movflags frag_keyframe+empty_moov+default_base_moof -f mp4 pipe:1', isDefault: false },
   ],
   activeCastProfileId: 'cast-default',
   activeUserAgentId: 'default-ua-1724778434000',
@@ -62,6 +62,7 @@ export const defaultSettings: Settings = {
     maxFileSizeBytes: 5 * 1024 * 1024,
     autoDeleteDays: 7,
   },
+  vodPlaybackEngine: 'native',
 };
 
 // Ports getSettings()'s migration logic verbatim from server.js:701-920: fills
@@ -107,7 +108,7 @@ function migrate(settings: Settings): { settings: Settings; needsSave: boolean }
       if (!existing) {
         settings.castProfiles.push(defaultProfile);
         needsSave = true;
-      } else if (existing.isDefault && existing.command !== defaultProfile.command) {
+      } else if (existing.command !== defaultProfile.command) {
         existing.command = defaultProfile.command;
         needsSave = true;
       }
@@ -145,6 +146,11 @@ function migrate(settings: Settings): { settings: Settings; needsSave: boolean }
       settings.logs.autoDeleteDays = defaultSettings.logs.autoDeleteDays;
       needsSave = true;
     }
+  }
+
+  if (!settings.vodPlaybackEngine) {
+    settings.vodPlaybackEngine = defaultSettings.vodPlaybackEngine;
+    needsSave = true;
   }
 
   return { settings, needsSave };

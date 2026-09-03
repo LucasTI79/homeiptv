@@ -1,4 +1,4 @@
-# Docker Compose file for ViniPlay
+# Docker Compose file for HomeIPTV
 # Version 3.8 is a modern, stable version of the Compose file format.
 version: "3.8"
 
@@ -7,14 +7,14 @@ services:
   # Tagged with the "container" profile: only starts when you run
   # `docker compose --profile container up`. Skip the profile if you're
   # running `node server.js` on the host and only want the Caddy proxy.
-  viniplay:
+  homeiptv:
     profiles: ["container"]
     # Build from the Dockerfile in the current directory.
     build: .
-    # image: ardovini/viniplay:latest
+    # image: ardovini/homeiptv:latest
 
     # Set a consistent name for the container for easy management.
-    container_name: viniplay
+    container_name: homeiptv
 
     # Map port 8998 on your host machine to port 8998 inside the container.
     ports:
@@ -26,12 +26,12 @@ services:
     restart: unless-stopped
 
     # Add volumes for persistent data.
-    # This maps the './viniplay-data' directory on your host to the '/data'
+    # This maps the './data' directory on your host to the '/data'
     # directory inside the container for app settings and sources.
     # A new volume for DVR recordings.
     volumes:
-      - ./viniplay-data:/data
-      - ./viniplay-dvr:/dvr # Mapped volume for DVR recordings
+      - ./data:/data
+      - ./dvr:/dvr # Mapped volume for DVR recordings
 
     # Load environment variables from a file on the host.
     # This allows you to set sensitive values like the session secret
@@ -69,16 +69,16 @@ services:
   # IP fails with "Cast functionality is not available").
   #
   # Upstream target is set via CADDY_UPSTREAM (in .env or the shell env):
-  #   - unset/default -> "viniplay:8998"        (proxies to the container above,
+  #   - unset/default -> "homeiptv:8998"        (proxies to the container above,
   #                                               run with --profile container)
   #   - host mode     -> "host.docker.internal:8998" (proxies to `node server.js`
   #                                               running directly on the host)
   caddy:
     image: caddy:2-alpine
-    container_name: viniplay-caddy
+    container_name: homeiptv-caddy
     restart: unless-stopped
     environment:
-      - CADDY_UPSTREAM=${CADDY_UPSTREAM:-viniplay:8998}
+      - CADDY_UPSTREAM=${CADDY_UPSTREAM:-homeiptv:8998}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:

@@ -100,6 +100,35 @@ adminRouter.post('/admin/stop-stream', requireAuth, requireAdmin, async (req, re
   }
 });
 
+adminRouter.delete('/admin/history', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const olderThanDays = req.query.olderThanDays ? parseInt(String(req.query.olderThanDays), 10) : null;
+    let query = db('stream_history');
+    if (olderThanDays && olderThanDays > 0) {
+      const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString();
+      query = query.where('start_time', '<', cutoff);
+    }
+    const deletedCount = await query.del();
+    console.log(`[ADMIN_API] Admin ${req.session.username} cleared ${deletedCount} stream history records.`);
+    res.json({ success: true, message: `Successfully deleted ${deletedCount} stream history records.` });
+  } catch (err) {
+    console.error('[ADMIN_API] Error clearing stream history:', err);
+    res.status(500).json({ error: 'Failed to clear stream history.' });
+  }
+});
+
+adminRouter.delete('/admin/history/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: 'Invalid history ID.' });
+    await db('stream_history').where({ id }).del();
+    res.json({ success: true, message: `History item ${id} deleted.` });
+  } catch (err) {
+    console.error('[ADMIN_API] Error deleting history item:', err);
+    res.status(500).json({ error: 'Failed to delete history item.' });
+  }
+});
+
 adminRouter.post('/admin/change-stream', requireAuth, requireAdmin, (req, res) => {
   const { userId: userIdRaw, streamKey, channel } = req.body as { userId?: string | number; streamKey?: string; channel?: unknown };
   const userId = Number(userIdRaw);

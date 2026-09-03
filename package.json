@@ -1,33 +1,24 @@
 {
-  "name": "viniplay",
+  "name": "homeiptv",
   "version": "main_0.11",
   "description": "A simple IPTV player with server-side storage and user authentication.",
-  "main": "server.js",
   "workspaces": [
     "backend",
     "frontend",
     "shared/types"
   ],
   "scripts": {
-    "start": "node server.js"
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:backend": "npm run dev --workspace=@homeiptv/backend",
+    "dev:frontend": "npm run dev --workspace=@homeiptv/frontend",
+    "build": "npm run build --workspaces --if-present",
+    "start": "npm run start --workspace=@homeiptv/backend",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:monit": "pm2 monit"
   },
   "author": "Andrea Ardovini",
   "license": "CC BY-NC-SA 4.0",
-  "dependencies": {
-    "axios": "^1.7.2",
-    "body-parser": "^1.20.3",
-    "express": "^4.21.2",
-    "multer": "^2.0.2",
-    "bcrypt": "^6.0.0",
-    "express-session": "^1.18.2",
-    "sqlite3": "^5.1.7",
-    "connect-sqlite3": "^0.9.16",
-    "dotenv": "^16.4.5",
-    "xml-js": "^1.6.11",
-    "fuse.js": "^7.1.0",
-    "web-push": "^3.6.7",
-    "node-schedule": "^2.1.1",
-    "diskusage": "^1.2.0",
-    "systeminformation": "^5.27.11"
+  "devDependencies": {
+    "pm2": "^7.0.4"
   }
 }

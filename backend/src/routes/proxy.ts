@@ -12,13 +12,6 @@ import { parseM3U } from '../services/sources';
 import { LIVE_CHANNELS_M3U_PATH } from '../config/paths';
 import { IMAGE_CACHE_DIR, cachePathsFor } from '../services/imageCache';
 
-// Ports /api/image-proxy from server.js (Wave 0 hardened version: DNS-pinned,
-// blocks loopback/private/link-local targets -- see server.js:4908-5000+ for
-// the version this was ported from) and adds a new /api/playlist-proxy
-// endpoint (issue #124 on the upstream repo / the user's original HTTP->HTTPS
-// proxy request): re-exports the merged live channel list with every entry
-// pointed at this server's own /stream endpoint instead of the raw,
-// often-http, provider URL.
 export const proxyRouter = Router();
 
 function isForbiddenIp(ip: string): boolean {
@@ -59,44 +52,39 @@ proxyRouter.get('/image-proxy', allowLocalOrAuth(), async (req, res) => {
     return res.status(400).send('URL must use http or https');
   }
 
-  let resolvedAddress: string;
-  try {
-    resolvedAddress = (await dns.promises.lookup(parsedUrl.hostname)).address;
-  } catch (err) {
-    console.error(`[IMAGE_PROXY] DNS lookup failed for ${parsedUrl.hostname}:`, (err as Error).message);
-    return res.status(400).send('Could not resolve host');
-  }
-  if (isForbiddenIp(resolvedAddress)) {
-    console.warn(`[IMAGE_PROXY] Blocked SSRF attempt: ${parsedUrl.hostname} -> ${resolvedAddress}`);
-    return res.status(400).send('URL points to a forbidden address');
-  }
-
   const { cacheFilePath, cacheMetaPath } = cachePathsFor(imageUrl);
-
   if (fs.existsSync(cacheFilePath) && fs.existsSync(cacheMetaPath)) {
     try {
-      const meta = JSON.parse(fs.readFileSync(cacheMetaPath, 'utf-8')) as { contentType: string };
-      res.setHeader('Content-Type', meta.contentType);
+      const meta = JSON.parse(fs.readFileSync(cacheMetaPath, 'utf-8'));
+      res.setHeader('Content-Type', meta.contentType || 'image/jpeg');
       res.setHeader('Cache-Control', 'public, max-age=2592000');
       res.setHeader('X-Cache', 'HIT');
-      const fileStream = fs.createReadStream(cacheFilePath);
-      fileStream.pipe(res);
-      fileStream.on('error', (err) => {
-        console.error('[IMAGE_PROXY] Error reading cached file:', err.message);
-        try { fs.unlinkSync(cacheFilePath); fs.unlinkSync(cacheMetaPath); } catch { /* ignore */ }
-        res.status(500).send('Cache read error');
-      });
-      return;
-    } catch (err) {
-      console.error('[IMAGE_PROXY] Error reading cache metadata:', (err as Error).message);
+      return fs.createReadStream(cacheFilePath).pipe(res);
+    } catch {
+      // ignore
     }
   }
 
-  const protocol = parsedUrl.protocol === 'https:' ? https : http;
+  let resolvedAddress: string;
+  let family: number;
+  try {
+    const lookupResult = await dns.promises.lookup(parsedUrl.hostname);
+    resolvedAddress = lookupResult.address;
+    family = lookupResult.family;
+  } catch (err) {
+    console.error(`[IMAGE_PROXY] DNS resolution failed for ${parsedUrl.hostname}:`, (err as Error).message);
+    return res.status(400).send('Could not resolve image host');
+  }
 
-  protocol.get(imageUrl, {
-    lookup: (hostname, lookupOptions, callback) => {
-      const family = net.isIPv6(resolvedAddress) ? 6 : 4;
+  if (isForbiddenIp(resolvedAddress)) {
+    console.warn(`[IMAGE_PROXY] Blocked SSRF attempt to ${parsedUrl.hostname} (${resolvedAddress})`);
+    return res.status(403).send('Access to private/internal network addresses is forbidden');
+  }
+
+  const client = parsedUrl.protocol === 'https:' ? https : http;
+  client.get(imageUrl, {
+    headers: { 'User-Agent': 'ViniPlay/1.0 (ImageProxy)' },
+    lookup: (_hostname, lookupOptions, callback) => {
       if (lookupOptions && (lookupOptions as { all?: boolean }).all) {
         callback(null, [{ address: resolvedAddress, family }]);
       } else {
@@ -155,4 +143,97 @@ proxyRouter.get('/playlist-proxy', requireAuth, (req, res) => {
   res.setHeader('Content-Type', 'application/x-mpegurl; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="viniplay.m3u"');
   res.send(out);
+});
+
+// Stream proxy endpoint to forward VOD video streams with redirect follow & HTTP Range support
+proxyRouter.get('/media-proxy', allowLocalOrAuth(), (req, res) => {
+  const targetUrl = req.query.url as string | undefined;
+  if (!targetUrl) {
+    return res.status(400).send('Missing url parameter');
+  }
+
+  const settings = getSettings();
+  const ua = settings.userAgents.find((u) => u.id === settings.activeUserAgentId)?.value || 'VLC/3.0.20 (Linux; x86_64)';
+
+  function executeProxy(urlStr: string, redirectCount = 0) {
+    if (redirectCount > 5) {
+      return res.status(502).send('Too many redirects from media server');
+    }
+
+    let parsed: URL;
+    try {
+      parsed = new URL(urlStr);
+    } catch {
+      return res.status(400).send('Invalid URL');
+    }
+
+    const headers: Record<string, string> = {
+      'User-Agent': ua,
+    };
+    if (req.headers.range) {
+      headers['Range'] = req.headers.range;
+    }
+
+    const client = parsed.protocol === 'https:' ? https : http;
+    const proxyReq = client.request(
+      parsed,
+      {
+        method: 'GET',
+        headers,
+      },
+      (upstreamRes) => {
+        // Handle HTTP 301, 302, 307, 308 redirects automatically (very common in XC IPTV servers)
+        if (
+          upstreamRes.statusCode &&
+          [301, 302, 303, 307, 308].includes(upstreamRes.statusCode) &&
+          upstreamRes.headers.location
+        ) {
+          const redirectLocation = new URL(upstreamRes.headers.location, urlStr).toString();
+          upstreamRes.resume(); // discard response data
+          return executeProxy(redirectLocation, redirectCount + 1);
+        }
+
+        res.status(upstreamRes.statusCode || 200);
+
+        const passHeaders = [
+          'content-type',
+          'content-length',
+          'content-range',
+          'accept-ranges',
+          'last-modified',
+          'etag',
+        ];
+        for (const h of passHeaders) {
+          if (upstreamRes.headers[h]) {
+            res.setHeader(h, upstreamRes.headers[h] as string);
+          }
+        }
+
+        if (!upstreamRes.headers['content-type'] || upstreamRes.headers['content-type'].includes('text/html')) {
+          res.setHeader('Content-Type', 'video/mp4');
+        }
+        res.setHeader('Accept-Ranges', 'bytes');
+
+        upstreamRes.pipe(res);
+        upstreamRes.on('error', (err) => {
+          console.error('[MEDIA_PROXY] Upstream pipe error:', err.message);
+        });
+      }
+    );
+
+    proxyReq.on('error', (err) => {
+      console.error(`[MEDIA_PROXY] Request error for ${urlStr}:`, err.message);
+      if (!res.headersSent) {
+        res.status(502).send('Error connecting to upstream IPTV media server');
+      }
+    });
+
+    req.on('close', () => {
+      proxyReq.destroy();
+    });
+
+    proxyReq.end();
+  }
+
+  executeProxy(targetUrl);
 });

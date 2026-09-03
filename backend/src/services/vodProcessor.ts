@@ -1,6 +1,6 @@
 import { db } from '../db/connection';
 import { XtreamClient } from './xtreamClient';
-import type { M3uSource } from '@viniplay/shared-types';
+import type { M3uSource } from '@homeiptv/shared-types';
 
 export type SendStatus = (message: string, type?: string) => void;
 const noopStatus: SendStatus = () => {};

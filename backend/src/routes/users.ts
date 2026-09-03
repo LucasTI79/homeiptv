@@ -3,6 +3,8 @@ import bcrypt from 'bcrypt';
 import { db } from '../db/connection';
 import { insertAndGetId } from '../db/helpers';
 import { requireAdmin } from '../middleware/auth';
+import { activeStreamProcesses } from '../state/streamState';
+import { sendSseEvent } from '../state/sseState';
 
 const SALT_ROUNDS = 10;
 
@@ -100,10 +102,25 @@ usersRouter.delete('/users/:id', requireAdmin, async (req, res) => {
     return res.status(403).json({ error: 'You cannot delete your own account.' });
   }
 
-  // TODO(streaming domain, task #12): terminate this user's active stream
-  // processes (activeStreamProcesses in server.js:1969-1980) once ported.
-  // TODO(admin/SSE domain, task #16): broadcast a 'force-logout' SSE event
-  // (server.js:1986) once the SSE layer is ported.
+  // Ports server.js:1969-1986: kill any live streams the deleted user still
+  // has running, then tell their connected client(s) to log out immediately.
+  let streamsKilled = 0;
+  for (const [streamKey, streamInfo] of activeStreamProcesses.entries()) {
+    if (streamInfo.userId === idToDelete) {
+      try {
+        streamInfo.process.kill('SIGKILL');
+        activeStreamProcesses.delete(streamKey);
+        streamsKilled++;
+      } catch (e) {
+        console.warn(`[USER_DELETION] Error killing stream process for user ${idToDelete}: ${(e as Error).message}`);
+      }
+    }
+  }
+  if (streamsKilled > 0) {
+    console.log(`[USER_DELETION] Terminated ${streamsKilled} active stream(s) for deleted user ${idToDelete}.`);
+  }
+
+  sendSseEvent(idToDelete, 'force-logout', { reason: 'Your account has been deleted by an administrator.' });
 
   try {
     const deleted = await db('users').where({ id: idToDelete }).del();

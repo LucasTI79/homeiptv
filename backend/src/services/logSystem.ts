@@ -1,177 +1,107 @@
 import fs from 'fs';
 import path from 'path';
+import winston from 'winston';
+import 'winston-daily-rotate-file';
 import { LOGS_DIR } from '../config/paths';
 import { getSettings } from './settings';
-import type { LogSettings } from '@viniplay/shared-types';
+import type { LogSettings } from '@homeiptv/shared-types';
 
-// Ports the log rotation system from server.js:922-1140: overrides
-// console.log/error/warn to also persist to rotating files under
-// DATA_DIR/logs. The console.* override is a deliberate global side effect
-// (same as the original) -- call initializeLogSystem() once, early, from
-// index.ts. Unlike the original (which stashes the pre-override functions as
-// a `.__original` property on console.log itself), these are kept as plain
-// module-level references -- same recursion-avoidance, cleaner typing.
-let currentLogStream: fs.WriteStream | null = null;
-let currentLogFilePath: string | null = null;
-let currentLogSize = 0;
 let cachedLogSettings: LogSettings = {
   maxFiles: 5,
   maxFileSizeBytes: 5 * 1024 * 1024,
   autoDeleteDays: 7,
 };
 
-type ConsoleFn = (...args: unknown[]) => void;
-let originalLog: ConsoleFn = console.log.bind(console);
-let originalError: ConsoleFn = console.error.bind(console);
-let originalWarn: ConsoleFn = console.warn.bind(console);
+// Ensure logs directory exists
+if (!fs.existsSync(LOGS_DIR)) {
+  fs.mkdirSync(LOGS_DIR, { recursive: true });
+}
+
+const logFormat = winston.format.combine(
+  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss.SSS' }),
+  winston.format.errors({ stack: true }),
+  winston.format.splat(),
+  winston.format.printf(({ timestamp, level, message, stack, ...meta }) => {
+    let out = `[${timestamp}] [${level.toUpperCase()}] ${message}`;
+    if (stack) {
+      out += `\n${stack}`;
+    }
+    if (Object.keys(meta).length > 0) {
+      out += `\n${JSON.stringify(meta, null, 2)}`;
+    }
+    return out;
+  })
+);
+
+const consoleFormat = winston.format.combine(
+  winston.format.colorize(),
+  winston.format.timestamp({ format: 'HH:mm:ss.SSS' }),
+  winston.format.printf(({ timestamp, level, message, stack }) => {
+    return `[${timestamp}] ${level}: ${stack || message}`;
+  })
+);
+
+export const logger = winston.createLogger({
+  level: 'info',
+  format: logFormat,
+  transports: [
+    new winston.transports.Console({
+      format: consoleFormat,
+    }),
+    new winston.transports.DailyRotateFile({
+      filename: path.join(LOGS_DIR, 'viniplay-%DATE%.log'),
+      datePattern: 'YYYY-MM-DD',
+      zippedArchive: false,
+      maxSize: '5m', // Overridden dynamically if needed
+      maxFiles: '7d', // Overridden dynamically
+      level: 'info',
+    }),
+  ],
+});
 
 export function refreshLogSettings(): void {
   try {
     const settings = getSettings();
     if (settings.logs) {
       cachedLogSettings = settings.logs;
-    }
-  } catch {
-    // Silently fail to avoid recursion
-  }
-}
+      // Re-configure transports based on DB settings if necessary
+      const fileTransport = logger.transports.find(
+        (t: any) => t.name === 'dailyRotateFile'
+      ) as any;
 
-function getCurrentLogFilePath(): string {
-  if (!currentLogFilePath) {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    currentLogFilePath = path.join(LOGS_DIR, `viniplay-${timestamp}.log`);
-  }
-  return currentLogFilePath;
-}
-
-export function cleanupOldLogsByCount(): void {
-  try {
-    const maxFiles = cachedLogSettings.maxFiles || 5;
-    const logFiles = fs.readdirSync(LOGS_DIR)
-      .filter((file) => file.startsWith('viniplay-') && file.endsWith('.log'))
-      .map((file) => ({ name: file, path: path.join(LOGS_DIR, file), mtime: fs.statSync(path.join(LOGS_DIR, file)).mtime }))
-      .sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
-
-    if (logFiles.length > maxFiles) {
-      for (const file of logFiles.slice(maxFiles)) {
-        try {
-          fs.unlinkSync(file.path);
-          originalLog(`[LOG_CLEANUP] Deleted old log file: ${file.name}`);
-        } catch {
-          // Silently fail
-        }
+      if (fileTransport) {
+        fileTransport.maxFiles = `${cachedLogSettings.autoDeleteDays || 7}d`;
+        fileTransport.maxSize = cachedLogSettings.maxFileSizeBytes || 5 * 1024 * 1024;
       }
     }
   } catch {
-    // Silently fail to avoid recursion
-  }
-}
-
-function rotateLogFile(): void {
-  try {
-    if (currentLogStream) {
-      currentLogStream.end();
-      currentLogStream = null;
-    }
-
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    currentLogFilePath = path.join(LOGS_DIR, `viniplay-${timestamp}.log`);
-    currentLogSize = 0;
-
-    originalLog(`[LOG_ROTATE] Created new log file: ${path.basename(currentLogFilePath)}`);
-    cleanupOldLogsByCount();
-  } catch {
-    // Silently fail to avoid recursion
-  }
-}
-
-export function cleanupOldLogsByAge(): void {
-  try {
-    const autoDeleteDays = cachedLogSettings.autoDeleteDays || 0;
-    if (autoDeleteDays === 0) return;
-
-    const cutoffTime = Date.now() - autoDeleteDays * 24 * 60 * 60 * 1000;
-    const logFiles = fs.readdirSync(LOGS_DIR).filter((file) => file.startsWith('viniplay-') && file.endsWith('.log'));
-
-    for (const file of logFiles) {
-      const filePath = path.join(LOGS_DIR, file);
-      const stats = fs.statSync(filePath);
-      if (stats.mtime.getTime() < cutoffTime) {
-        try {
-          fs.unlinkSync(filePath);
-          originalLog(`[LOG_CLEANUP] Deleted old log file (age): ${file}`);
-        } catch {
-          // Silently fail
-        }
-      }
-    }
-  } catch {
-    // Silently fail to avoid recursion
-  }
-}
-
-function writeToLogFile(message: string): void {
-  try {
-    const maxSize = cachedLogSettings.maxFileSizeBytes || 5 * 1024 * 1024;
-    if (currentLogSize >= maxSize) {
-      rotateLogFile();
-    }
-
-    if (!currentLogStream) {
-      const logPath = getCurrentLogFilePath();
-      currentLogStream = fs.createWriteStream(logPath, { flags: 'a' });
-      currentLogStream.on('error', (err) => {
-        originalError(`[LOG_SYSTEM] Write stream error for ${logPath}: ${err.message}`);
-        currentLogStream = null;
-      });
-      if (fs.existsSync(logPath)) {
-        currentLogSize = fs.statSync(logPath).size;
-      }
-    }
-
-    const logLine = `${message}\n`;
-    currentLogStream.write(logLine);
-    currentLogSize += Buffer.byteLength(logLine);
-  } catch {
-    // Silently fail to avoid infinite loop
+    // Silently fail during early startup
   }
 }
 
 export function resetLogStream(): void {
-  if (currentLogStream) {
-    currentLogStream.end();
-    currentLogStream = null;
-  }
-  currentLogFilePath = null;
-  currentLogSize = 0;
+  // With Winston, rotation is handled automatically.
+  // We don't need to manually reset the stream when files are deleted.
+  // The daily rotate file transport will recreate the file if it's missing on the next log write.
 }
 
 export function initializeLogSystem(): void {
-  originalLog = console.log.bind(console);
-  originalError = console.error.bind(console);
-  originalWarn = console.warn.bind(console);
+  refreshLogSettings();
+  
+  // Monkey patch console.* to route to Winston
+  const originalLog = console.log.bind(console);
+  const originalError = console.error.bind(console);
+  const originalWarn = console.warn.bind(console);
 
   console.log = (...args: unknown[]) => {
-    const message = args.map((arg) => (typeof arg === 'object' ? JSON.stringify(arg) : String(arg))).join(' ');
-    originalLog(...args);
-    writeToLogFile(`[LOG] ${new Date().toISOString()} ${message}`);
+    logger.info(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
   };
-
   console.error = (...args: unknown[]) => {
-    const message = args.map((arg) => (typeof arg === 'object' ? JSON.stringify(arg) : String(arg))).join(' ');
-    originalError(...args);
-    writeToLogFile(`[ERROR] ${new Date().toISOString()} ${message}`);
+    logger.error(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
   };
-
   console.warn = (...args: unknown[]) => {
-    const message = args.map((arg) => (typeof arg === 'object' ? JSON.stringify(arg) : String(arg))).join(' ');
-    originalWarn(...args);
-    writeToLogFile(`[WARN] ${new Date().toISOString()} ${message}`);
+    logger.warn(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
   };
 
-  refreshLogSettings();
-  cleanupOldLogsByAge();
-  setInterval(cleanupOldLogsByAge, 24 * 60 * 60 * 1000);
-
-  console.log('[LOG_SYSTEM] Log rotation system initialized.');
+  logger.info('[LOG_SYSTEM] Winston logger initialized and console overridden.');
 }

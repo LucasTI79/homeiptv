@@ -16,6 +16,7 @@ healthRouter.get('/health', async (_req, res) => {
   const body: HealthStatus = {
     status: dbOk ? 'ok' : 'degraded',
     dbClient: env.dbClient,
+    appName: env.appName,
     timestamp: new Date().toISOString(),
   };
 

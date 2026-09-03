@@ -8,7 +8,7 @@ import { parseM3U } from '../services/sources';
 import { LIVE_CHANNELS_M3U_PATH } from '../config/paths';
 import { env } from '../config/env';
 import { activeDvrJobs, runningFFmpegProcesses } from '../state/dvrState';
-import type { DvrJob } from '@viniplay/shared-types';
+import type { DvrJob } from '@homeiptv/shared-types';
 
 // Ports stopRecording/startRecording/scheduleDvrJob/checkForConflicts from
 // server.js:4275-4462, using Knex instead of raw db.run/db.all.

@@ -11,7 +11,7 @@ notificationsRouter.get('/notifications/vapid-public-key', requireAuth, (_req, r
   if (!vapidKeys.publicKey) {
     return res.status(500).json({ error: 'VAPID public key not available on the server.' });
   }
-  res.send(vapidKeys.publicKey);
+  res.json({ publicKey: vapidKeys.publicKey });
 });
 
 notificationsRouter.post('/notifications/subscribe', requireAuth, async (req, res) => {

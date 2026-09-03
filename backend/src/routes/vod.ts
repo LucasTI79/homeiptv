@@ -1,10 +1,12 @@
+import fs from 'fs';
 import { spawn } from 'child_process';
 import { Router } from 'express';
 import { db } from '../db/connection';
 import { requireAuth } from '../middleware/auth';
 import { getSettings } from '../services/settings';
 import { XtreamClient } from '../services/xtreamClient';
-import type { M3uSource } from '@viniplay/shared-types';
+import { refreshVodContent, processM3uVod } from '../services/vodProcessor';
+import type { M3uSource } from '@homeiptv/shared-types';
 
 // Ports the four /api/vod/* routes from server.js:2198-2357, 2362-2567,
 // 2570-2580, 3387-3444.
@@ -28,6 +30,33 @@ function buildProviderMap(providers: M3uSource[]): Map<string, { baseUrl: string
   }
   return providerMap;
 }
+
+vodRouter.post('/vod/refresh', requireAuth, async (_req, res) => {
+  try {
+    const settings = getSettings();
+    const activeSources = settings.m3uSources.filter((s) => s.isActive);
+    const activeUserAgent = settings.userAgents.find((ua) => ua.id === settings.activeUserAgentId)?.value || 'VLC/3.0.20 (Linux; x86_64)';
+
+    let syncedCount = 0;
+    for (const source of activeSources) {
+      if (source.type === 'xc') {
+        await refreshVodContent(source, activeUserAgent);
+        syncedCount++;
+      } else if (source.type === 'file' || source.type === 'url') {
+        if (source.cachedRawPath && fs.existsSync(source.cachedRawPath)) {
+          const content = fs.readFileSync(source.cachedRawPath, 'utf-8');
+          await processM3uVod(content, source);
+          syncedCount++;
+        }
+      }
+    }
+
+    res.json({ success: true, message: `VOD content refreshed for ${syncedCount} sources.` });
+  } catch (err) {
+    console.error('[API_VOD] Failed to refresh VOD library:', err);
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
 
 vodRouter.get('/vod/library', requireAuth, async (req, res) => {
   try {

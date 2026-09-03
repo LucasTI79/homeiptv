@@ -1,10 +1,10 @@
 {
-  "name": "@viniplay/backend",
+  "name": "@homeiptv/backend",
   "version": "0.1.0",
   "private": true,
   "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --ignore '**/node_modules/**' src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
@@ -13,7 +13,7 @@
     "migrate:legacy-data": "tsx scripts/migrate-legacy-data.ts"
   },
   "dependencies": {
-    "@viniplay/shared-types": "*",
+    "@homeiptv/shared-types": "*",
     "axios": "^1.7.2",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^11.3.0",
@@ -21,7 +21,9 @@
     "diskusage": "^1.2.0",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
+    "express-rate-limit": "^8.7.0",
     "express-session": "^1.18.2",
+    "helmet": "^8.3.0",
     "knex": "^3.1.0",
     "multer": "^2.0.2",
     "mysql2": "^3.11.3",
@@ -29,7 +31,10 @@
     "pg": "^8.13.0",
     "systeminformation": "^5.27.11",
     "web-push": "^3.6.7",
-    "xml-js": "^1.6.11"
+    "winston": "^3.19.0",
+    "winston-daily-rotate-file": "^5.0.0",
+    "xml-js": "^1.6.11",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",

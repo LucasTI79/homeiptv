@@ -1,11 +1,13 @@
 import { useState, type FormEvent } from 'react';
 import { useLogin } from '../api/auth';
 import { ApiError } from '../api/client';
+import { useUiStore } from '../store/uiStore';
 
 export function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const login = useLogin();
+  const appName = useUiStore(state => state.appName);
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -15,7 +17,7 @@ export function LoginPage() {
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 flex items-center justify-center px-4">
       <form onSubmit={handleSubmit} className="w-full max-w-sm bg-gray-800 rounded-xl p-8 shadow-lg space-y-4">
-        <h1 className="text-xl font-bold text-center">ViniPlay</h1>
+        <h1 className="text-xl font-bold text-center">{appName}</h1>
 
         <div>
           <label htmlFor="username" className="block text-sm text-gray-400 mb-1">Username</label>

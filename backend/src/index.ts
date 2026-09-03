@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import express from 'express';
+import helmet from 'helmet';
 import session from 'express-session';
 import { ConnectSessionKnexStore } from 'connect-session-knex';
 import { env } from './config/env';
@@ -26,6 +27,7 @@ import { sseRouter } from './routes/sse';
 import { adminRouter } from './routes/admin';
 import { miscRouter } from './routes/misc';
 import { notificationsRouter } from './routes/notifications';
+import { diagnosticsRouter } from './routes/diagnostics';
 import { cleanupInactiveStreams, setBroadcastAdminUpdate } from './state/streamState';
 import { broadcastAdminUpdateImpl } from './state/sseState';
 
@@ -43,6 +45,22 @@ const app = express();
 // Same reasoning as the Wave 0 fix in server.js: only trust X-Forwarded-For
 // when it comes from the Caddy reverse proxy (loopback/private network).
 app.set('trust proxy', 'loopback, linklocal, uniquelocal');
+
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "https://www.gstatic.com"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["*", "data:", "blob:"], // Allow images from any source and data URIs for M3U logos
+        mediaSrc: ["*", "'self'", "blob:", "data:"], // Allow media streams and local proxies
+        connectSrc: ["'self'", "https://google.com"],
+        frameSrc: ["'none'"],
+      },
+    },
+  })
+);
 
 app.use(express.json());
 app.use(
@@ -96,6 +114,7 @@ app.use('/api', sseRouter);
 app.use('/api', adminRouter);
 app.use('/api', miscRouter);
 app.use('/api', notificationsRouter);
+app.use('/api', diagnosticsRouter);
 
 // server.js:5241-5247 -- SPA fallback, must be registered last.
 app.get('*', (req, res) => {
@@ -103,6 +122,7 @@ app.get('*', (req, res) => {
   if (fs.existsSync(filePath) && fs.lstatSync(filePath).isFile()) {
     return res.sendFile(filePath);
   }
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
 

@@ -18,3 +18,10 @@ export interface SessionUser {
 export type AuthStatus =
   | { isLoggedIn: true; user: SessionUser }
   | { isLoggedIn: false };
+
+export interface HealthStatus {
+  status: 'ok' | 'degraded';
+  dbClient: string;
+  appName?: string;
+  timestamp: string;
+}

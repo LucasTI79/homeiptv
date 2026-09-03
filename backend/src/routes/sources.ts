@@ -6,8 +6,9 @@ import { db } from '../db/connection';
 import { requireAuth } from '../middleware/auth';
 import { getSettings, saveSettings } from '../services/settings';
 import { fetchUrlContent, processAndMergeSources } from '../services/sources';
+import { XtreamClient } from '../services/xtreamClient';
 import { SOURCES_DIR } from '../config/paths';
-import type { M3uSource, EpgSource } from '@viniplay/shared-types';
+import type { M3uSource, EpgSource } from '@homeiptv/shared-types';
 
 // Ports the source-management routes from server.js:1741-1843, 2582-3008.
 export const sourcesRouter = Router();
@@ -54,9 +55,12 @@ sourcesRouter.post('/sources/fetch-groups', requireAuth, async (req, res) => {
       if (!xcInfo.server || !xcInfo.username || !xcInfo.password) {
         return res.status(400).json({ error: 'XC source requires server, username, and password.' });
       }
-      // TODO(VOD domain, task #14): use the ported XtreamClient once available
-      // (server.js:1781-1786 uses it to fetch every category, not just live).
-      return res.status(501).json({ error: 'XC group listing is not yet available on the new backend (pending VOD domain port).' });
+      // Ports server.js:1781-1786: fetches live+VOD+series categories concurrently.
+      const xcSettings = getSettings();
+      const activeUserAgent = xcSettings.userAgents.find((ua) => ua.id === xcSettings.activeUserAgentId)?.value || 'VLC/3.0.20 (Linux; x86_64)';
+      const client = new XtreamClient(xcInfo.server, xcInfo.username, xcInfo.password, activeUserAgent);
+      const allCategories = await client.getAllCategories();
+      return res.json({ success: true, groups: allCategories, usedCache: false });
     }
 
     if (!usedCache) {

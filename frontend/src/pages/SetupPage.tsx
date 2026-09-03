@@ -1,11 +1,13 @@
 import { useState, type FormEvent } from 'react';
 import { useSetupAdmin } from '../api/auth';
 import { ApiError } from '../api/client';
+import { useUiStore } from '../store/uiStore';
 
 export function SetupPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const setup = useSetupAdmin();
+  const appName = useUiStore(state => state.appName);
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -15,7 +17,7 @@ export function SetupPage() {
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 flex items-center justify-center px-4">
       <form onSubmit={handleSubmit} className="w-full max-w-sm bg-gray-800 rounded-xl p-8 shadow-lg space-y-4">
-        <h1 className="text-xl font-bold text-center">Welcome to ViniPlay</h1>
+        <h1 className="text-xl font-bold text-center">Welcome to {appName}</h1>
         <p className="text-sm text-gray-400 text-center">Create the first admin account to get started.</p>
 
         <div>

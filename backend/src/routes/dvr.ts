@@ -9,7 +9,7 @@ import { getSettings } from '../services/settings';
 import { env } from '../config/env';
 import { activeDvrJobs } from '../state/dvrState';
 import { scheduleDvrJob, stopRecording, checkForConflicts, type NewDvrJob } from '../services/dvrRecorder';
-import type { DvrJob } from '@viniplay/shared-types';
+import type { DvrJob } from '@homeiptv/shared-types';
 
 // Ports the 12 /api/dvr/* routes from server.js:4510-4839.
 export const dvrRouter = Router();

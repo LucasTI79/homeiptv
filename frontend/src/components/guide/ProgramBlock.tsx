@@ -1,4 +1,4 @@
-import type { Channel, EpgProgram } from '@viniplay/shared-types';
+import type { Channel, EpgProgram } from '@homeiptv/shared-types';
 import { formatTimeWithOffset } from '../../lib/formatTime';
 
 export interface GuideProgram extends EpgProgram {

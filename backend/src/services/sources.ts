@@ -2,7 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import http from 'http';
 import https from 'https';
-import type { Channel } from '@viniplay/shared-types';
+import type { Channel } from '@homeiptv/shared-types';
+import { refreshVodContent, processM3uVod } from './vodProcessor';
 
 // Ports fetchUrlContent from server.js:1174-1222 verbatim: follows redirects
 // recursively, supports a 60s timeout, and can return either text or a raw
@@ -86,6 +87,7 @@ export function parseM3U(data: string): Channel[] {
   if (!data) return [];
   const lines = data.split('\n');
   const channels: Channel[] = [];
+  const seenIds = new Map<string, number>();
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -100,9 +102,15 @@ export function parseM3U(data: string): Channel[] {
         const sourceMatch = line.match(/vini-source="([^"]*)"/);
         const commaIndex = line.lastIndexOf(',');
         const displayName = commaIndex !== -1 ? line.substring(commaIndex + 1).trim() : 'Unknown';
+        const rawId = idMatch ? idMatch[1] : `unknown-${channels.length}`;
+
+        const count = seenIds.get(rawId) || 0;
+        seenIds.set(rawId, count + 1);
+        const uniqueId = count > 0 ? `${rawId}_dup${count}` : rawId;
 
         channels.push({
-          id: idMatch ? idMatch[1] : `unknown-${Math.random()}`,
+          id: uniqueId,
+          tvgId: rawId,
           logo: logoMatch ? logoMatch[1] : '',
           name: nameMatch ? nameMatch[1] : displayName,
           group: groupMatch ? groupMatch[1] : 'Uncategorized',
@@ -134,7 +142,7 @@ export function parseM3U(data: string): Channel[] {
 
 import xmlJS from 'xml-js';
 import zlib from 'zlib';
-import type { M3uSource, EpgSource, Settings } from '@viniplay/shared-types';
+import type { M3uSource, EpgSource, Settings } from '@homeiptv/shared-types';
 import { getSettings } from './settings';
 import { SOURCES_DIR, RAW_CACHE_DIR, LIVE_CHANNELS_M3U_PATH, LIVE_EPG_JSON_PATH } from '../config/paths';
 
@@ -200,13 +208,17 @@ async function fetchM3uSourceContent(
 
   let content = '';
   try {
-    sendStatus(' -> Fetching live categories from XC server...', 'info');
+    sendStatus(' -> Fetching live categories and streams from XC server in parallel...', 'info');
     const liveCategoriesUrl = `${server}/player_api.php?username=${username}&password=${password}&action=get_live_categories`;
-    const liveCategories = JSON.parse(await fetchUrlContent(liveCategoriesUrl, m3uFetchOptions) as string) as Array<{ category_id: string; category_name: string }>;
-
-    sendStatus(' -> Fetching live streams from XC server...', 'info');
     const liveStreamsUrl = `${server}/player_api.php?username=${username}&password=${password}&action=get_live_streams`;
-    const liveStreams = JSON.parse(await fetchUrlContent(liveStreamsUrl, m3uFetchOptions) as string) as Array<{
+
+    const [categoriesRaw, streamsRaw] = await Promise.all([
+      fetchUrlContent(liveCategoriesUrl, m3uFetchOptions),
+      fetchUrlContent(liveStreamsUrl, m3uFetchOptions),
+    ]);
+
+    const liveCategories = JSON.parse(categoriesRaw as string) as Array<{ category_id: string; category_name: string }>;
+    const liveStreams = JSON.parse(streamsRaw as string) as Array<{
       stream_type: string; stream_id: string | number; name: string; stream_icon?: string; category_id?: string; epg_channel_id?: string;
     }>;
 
@@ -250,12 +262,34 @@ async function fetchM3uSourceContent(
   return content;
 }
 
+// Helper to process async tasks concurrently with a maximum parallel pool limit
+async function mapConcurrent<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results: R[] = new Array(items.length);
+  let currentIndex = 0;
+
+  async function worker(): Promise<void> {
+    while (currentIndex < items.length) {
+      const idx = currentIndex++;
+      results[idx] = await fn(items[idx], idx);
+    }
+  }
+
+  const workerCount = Math.min(Math.max(1, limit), items.length);
+  const workers = Array.from({ length: workerCount }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
 export async function processAndMergeSources(sendStatus: SendStatus = noopStatus): Promise<ProcessResult> {
   console.log('[PROCESS] Starting to process and merge all active sources.');
   sendStatus('Starting to process sources...', 'info');
   const settings = getSettings();
 
-  let mergedLiveM3uContent = '#EXTM3U\n';
   const liveChannelIdSet = new Set<string>();
   const groupTitleRegex = /group-title="([^"]*)"/;
 
@@ -267,25 +301,39 @@ export async function processAndMergeSources(sendStatus: SendStatus = noopStatus
     sendStatus('No active M3U sources found.', 'info');
   }
 
-  for (const source of activeM3uSources) {
+  // --- M3U Parallel Processing (Max 3 concurrent downloads) ---
+  const M3U_CONCURRENCY = 3;
+  const m3uResults = await mapConcurrent(activeM3uSources, M3U_CONCURRENCY, async (source) => {
     console.log(`[M3U] Processing source: "${source.name}" (ID: ${source.id}, Type: ${source.type}, Path: ${source.path})`);
     sendStatus(`Processing M3U source: "${source.name}"...`, 'info');
 
     const selectedGroups = source.selectedGroups || [];
     const isGroupFilteringActive = selectedGroups.length > 0;
     if (isGroupFilteringActive) {
-      sendStatus(` -> Applying group filter. ${selectedGroups.length} groups selected.`, 'info');
+      sendStatus(` -> Applying group filter. ${selectedGroups.length} groups selected for "${source.name}".`, 'info');
     }
+
+    let partialM3u = '';
+    const channelIds: string[] = [];
+    let liveStreamCount = 0;
 
     try {
       const content = await fetchM3uSourceContent(source, settings, sendStatus);
 
-      // TODO(VOD domain, task #14): trigger processM3uVod / triggerVodRefreshForProvider
-      // here (server.js:1404-1409, 1476-1484) once vodProcessor.js is ported.
+      // Trigger VOD refresh in background so Live channels load without delay
+      const activeUserAgent = settings.userAgents.find((ua) => ua.id === settings.activeUserAgentId)?.value || 'VLC/3.0.20 (Linux; x86_64)';
+      if (source.type === 'xc') {
+        refreshVodContent(source, activeUserAgent).catch((e) => {
+          console.error(`[VOD] Background VOD refresh error for "${source.name}":`, (e as Error).message);
+        });
+      } else if (content.includes('/movie/') || content.includes('/series/')) {
+        processM3uVod(content, source).catch((e) => {
+          console.error(`[VOD] Background M3U VOD error for "${source.name}":`, (e as Error).message);
+        });
+      }
 
       const lines = content.split('\n');
       let currentExtInf = '';
-      let liveStreamCount = 0;
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
@@ -324,8 +372,8 @@ export async function processAndMergeSources(sendStatus: SendStatus = noopStatus
           const tvgIdAttrEnd = processedExtInf.indexOf(`tvg-id="${finalUniqueChannelId}"`) + `tvg-id="${finalUniqueChannelId}"`.length;
           processedExtInf = processedExtInf.slice(0, tvgIdAttrEnd) + ` vini-source="${source.name}"` + processedExtInf.slice(tvgIdAttrEnd);
 
-          mergedLiveM3uContent += processedExtInf + '\n' + streamUrl + '\n';
-          liveChannelIdSet.add(finalUniqueChannelId);
+          partialM3u += processedExtInf + '\n' + streamUrl + '\n';
+          channelIds.push(finalUniqueChannelId);
 
           currentExtInf = '';
         }
@@ -333,7 +381,7 @@ export async function processAndMergeSources(sendStatus: SendStatus = noopStatus
 
       source.status = 'Success';
       source.statusMessage = `Processed ${liveStreamCount} Live channels.`;
-      console.log(`[M3U] Source "${source.name}" processed successfully.`);
+      console.log(`[M3U] Source "${source.name}" processed successfully (${liveStreamCount} channels).`);
       sendStatus(` -> Processed ${liveStreamCount} Live channels from "${source.name}".`, 'info');
     } catch (error) {
       const errorMsg = `Failed to process source "${source.name}" from ${source.path}: ${(error as Error).message}`;
@@ -343,6 +391,13 @@ export async function processAndMergeSources(sendStatus: SendStatus = noopStatus
       source.statusMessage = `Processing failed: ${(error as Error).message.substring(0, 100)}...`;
     }
     source.lastUpdated = new Date().toISOString();
+    return { partialM3u, channelIds };
+  });
+
+  let mergedLiveM3uContent = '#EXTM3U\n';
+  for (const res of m3uResults) {
+    if (res.partialM3u) mergedLiveM3uContent += res.partialM3u;
+    for (const chId of res.channelIds) liveChannelIdSet.add(chId);
   }
 
   try {
@@ -354,18 +409,23 @@ export async function processAndMergeSources(sendStatus: SendStatus = noopStatus
     sendStatus(`Error writing live channels file: ${(writeErr as Error).message}`, 'error');
   }
 
-  // --- EPG processing ---
+  // --- EPG Parallel Processing (Max 2 concurrent XML parses to protect RAM and CPU) ---
   const mergedProgramData: MergedEpgData = {};
   const timezoneOffset = settings.timezoneOffset || 0;
+  const m3uSourceProviders = settings.m3uSources.filter((m3u) => m3u.isActive);
 
   if (activeEpgSources.length === 0) {
     console.log('[PROCESS] No active EPG sources found.');
     sendStatus('No active EPG sources found.', 'info');
   }
 
-  for (const source of activeEpgSources) {
+  const EPG_CONCURRENCY = 2;
+  const epgResults = await mapConcurrent(activeEpgSources, EPG_CONCURRENCY, async (source) => {
     console.log(`[EPG] Processing source: "${source.name}" (ID: ${source.id}, Type: ${source.type}, Path: ${source.path})`);
     sendStatus(`Processing EPG source: "${source.name}"...`, 'info');
+
+    const sourceProgramMap: Record<string, Array<{ start: string; stop: string; title: string; desc: string }>> = {};
+
     try {
       let xmlString = '';
       const epgFilePath = path.join(SOURCES_DIR, `epg_${source.id}.xml`);
@@ -375,18 +435,18 @@ export async function processAndMergeSources(sendStatus: SendStatus = noopStatus
           sendStatus(`Error: File not found for source "${source.name}". Skipping.`, 'error');
           source.status = 'Error';
           source.statusMessage = 'File not found.';
-          continue;
+          return sourceProgramMap;
         }
         xmlString = fs.readFileSync(source.path, 'utf-8');
       } else if (source.type === 'url') {
-        sendStatus(' -> Fetching content from URL...', 'info');
+        sendStatus(` -> Fetching EPG content from URL for "${source.name}"...`, 'info');
         if (source.path.endsWith('.gz')) {
           const buffer = await fetchUrlContent(source.path, source.fetchOptions || {}, true) as Buffer;
           xmlString = zlib.gunzipSync(buffer).toString('utf-8');
-          sendStatus(' -> Successfully fetched and decompressed EPG content.', 'info');
+          sendStatus(` -> Successfully decompressed EPG for "${source.name}".`, 'info');
         } else {
           xmlString = await fetchUrlContent(source.path, source.fetchOptions || {}) as string;
-          sendStatus(' -> Successfully fetched EPG content.', 'info');
+          sendStatus(` -> Successfully fetched EPG for "${source.name}".`, 'info');
         }
 
         try {
@@ -400,6 +460,9 @@ export async function processAndMergeSources(sendStatus: SendStatus = noopStatus
       const epgJson = xmlJS.xml2js(xmlString, { compact: true }) as {
         tv?: { programme?: unknown };
       };
+      // Release raw XML string reference immediately to assist garbage collection
+      xmlString = '';
+
       const programs = (epgJson.tv && epgJson.tv.programme ? [].concat(epgJson.tv.programme as never) : []) as Array<{
         _attributes?: { channel?: string; start?: string; stop?: string };
         title?: { _cdata?: string; _text?: string };
@@ -413,8 +476,6 @@ export async function processAndMergeSources(sendStatus: SendStatus = noopStatus
         sendStatus(`Warning: No programs found in "${source.name}".`, 'info');
       }
 
-      const m3uSourceProviders = settings.m3uSources.filter((m3u) => m3u.isActive);
-
       for (const prog of programs) {
         const originalChannelId = prog._attributes?.channel;
         if (!originalChannelId) continue;
@@ -424,15 +485,15 @@ export async function processAndMergeSources(sendStatus: SendStatus = noopStatus
           const uniqueChannelId = `${m3uSource.id}_${originalChannelId}`;
           if (!liveChannelIdSet.has(uniqueChannelId)) continue;
 
-          if (!mergedProgramData[uniqueChannelId]) {
-            mergedProgramData[uniqueChannelId] = [];
+          if (!sourceProgramMap[uniqueChannelId]) {
+            sourceProgramMap[uniqueChannelId] = [];
           }
           epgAddedCount++;
 
           const titleNode = prog.title?._cdata ?? prog.title?._text ?? 'No Title';
           const descNode = prog.desc?._cdata ?? prog.desc?._text ?? '';
 
-          mergedProgramData[uniqueChannelId].push({
+          sourceProgramMap[uniqueChannelId].push({
             start: parseEpgTime(prog._attributes!.start!, timezoneOffset).toISOString(),
             stop: parseEpgTime(prog._attributes!.stop!, timezoneOffset).toISOString(),
             title: titleNode.trim(),
@@ -444,7 +505,7 @@ export async function processAndMergeSources(sendStatus: SendStatus = noopStatus
       if (!source.isXcEpg) {
         source.status = 'Success';
         source.statusMessage = `Processed ${programCount} programs, added ${epgAddedCount} to live guide.`;
-        console.log(`[EPG] Source "${source.name}" processed successfully from ${source.path}.`);
+        console.log(`[EPG] Source "${source.name}" processed successfully.`);
       }
       sendStatus(` -> Processed ${programCount} programs, added ${epgAddedCount} to live guide from "${source.name}".`, 'info');
     } catch (error) {
@@ -458,6 +519,17 @@ export async function processAndMergeSources(sendStatus: SendStatus = noopStatus
     }
     if (!source.isXcEpg) {
       source.lastUpdated = new Date().toISOString();
+    }
+    return sourceProgramMap;
+  });
+
+  // Combine EPG maps from all concurrent sources
+  for (const sourceMap of epgResults) {
+    for (const channelId in sourceMap) {
+      if (!mergedProgramData[channelId]) {
+        mergedProgramData[channelId] = [];
+      }
+      mergedProgramData[channelId].push(...sourceMap[channelId]);
     }
   }
 

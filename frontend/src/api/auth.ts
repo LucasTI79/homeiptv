@@ -1,6 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from './client';
-import type { AuthStatus, SessionUser } from '@viniplay/shared-types';
+import type { AuthStatus, SessionUser, HealthStatus } from '@homeiptv/shared-types';
+
+export function useHealth() {
+  return useQuery({
+    queryKey: ['health'],
+    queryFn: () => apiFetch<HealthStatus>('/api/health'),
+  });
+}
 
 export function useAuthStatus() {
   return useQuery({

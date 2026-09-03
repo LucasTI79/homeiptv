@@ -45,7 +45,7 @@ export const activeStreamProcesses = new Map<string, ActiveStreamInfo>();
 export const activeRedirectStreams = new Map<string, ActiveRedirectStreamInfo>();
 export const activeCastTokens = new Map<string, CastTokenData>();
 
-export const STREAM_INACTIVITY_TIMEOUT = 30000;
+export const STREAM_INACTIVITY_TIMEOUT = 60000; // 60 seconds tolerance for network buffering & Cast
 
 // Wired up by the admin/SSE domain (task #16) once it lands; a no-op until
 // then so streaming/DVR code can call it unconditionally, same seam pattern

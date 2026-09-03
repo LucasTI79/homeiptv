@@ -1,198 +1,80 @@
-<div align="center">
-
 # ViniPlay
 
-**A powerful, self-hosted IPTV player with a modern web interface.**
-
-Stream your M3U playlists with EPG data, manage users, cast to your TV, and watch multiple channels at once.
-
-Join my <a href="https://discord.gg/DXxvAw22Us">discord</a> to talk with the community.
-<p>
-    <img src="https://img.shields.io/badge/docker-ready-blue.svg?style=for-the-badge&logo=docker" alt="Docker Ready">
-    <img src="https://img.shields.io/badge/platform-node-green.svg?style=for-the-badge&logo=node.js" alt="Node.js Backend">
+<p align="center">
+  <img src="https://i.imgur.com/u9Jq1qA.png" alt="ViniPlay Logo" width="200">
 </p>
 
-</div>
+ViniPlay is a modern, high-performance IPTV player built for web browsers. It features a React-based frontend and an Express-based Node.js backend to securely manage users, transcode video streams via FFMPEG (with GPU support), and manage your M3U and EPG sources.
+
+## 🚀 Como Rodar o ViniPlay (How to Run)
+
+Com a recente transição para a arquitetura de **Monorepo** (Frontend em React/Vite + Backend em Node/Express), existem três maneiras principais de se rodar o ViniPlay:
+
+### 1. Desenvolvimento Local (Live Reload / Debug)
+Esta é a melhor forma de rodar se você for editar o código.
+- **Frontend** roda na porta `5173` via Vite (com HMR - Live Reload).
+- **Backend** roda na porta `8999` via TSX (compilação TypeScript on-the-fly).
+- O Frontend automaticamente usa Proxy para repassar requisições `/api` para o Backend.
+
+**Como rodar:**
+1. Na raiz do projeto, instale as dependências: `npm install`
+2. Rode o comando mágico que levanta o Front e Back juntos:
+   ```bash
+   npm run dev
+   ```
+3. Acesse `http://localhost:5173` no seu navegador. As alterações no código refletirão instantaneamente na tela ou reiniciarão a API.
+
+### 2. Produção Local (PM2 / Monolito sem Docker)
+Se você quer rodar localmente no seu PC, mas sem as ferramentas pesadas de live-reload, utilizando a versão de alta performance (já compilada em JavaScript puro).
+- O Backend servirá a própria interface na porta `8999`.
+
+**Como rodar:**
+1. Compile o projeto inteiro: `npm run build`
+2. Inicie o sistema via PM2: `npm run pm2:start`
+3. Monitore em tempo real os recursos e os logs do Winston: `npm run pm2:monit`
+4. Acesse `http://localhost:8999`. (Para desligar, use `npm run pm2:stop`).
+
+### 3. Produção com Docker Compose (Recomendado para Servidores)
+O método final empacota tudo (Frontend + Backend) numa imagem Ubuntu limpa já com `jellyfin-ffmpeg` (suporte a transcoding por Placas de Vídeo).
+
+1. Crie seu `docker-compose.yml` e a pasta de volume `data`.
+2. Rode o comando:
+   ```bash
+   docker-compose --profile container up -d --build
+   ```
+3. O servidor estará disponível na porta `8998`.
 
 ---
 
-ViniPlay transforms your M3U and EPG files into a polished, high-performance streaming experience. It's a full-featured IPTV solution that runs in a Docker container, providing a robust Node.js backend to handle streams and a sleek, responsive frontend for an exceptional user experience.
+## 🏗️ Estrutura do Projeto (Monorepo)
 
-The server-side backend resolves common CORS and browser compatibility issues by proxying or transcoding streams with FFMPEG, while the feature-rich frontend provides a user experience comparable to premium IPTV services.
-
-### Main User Interface Flow
-![Main User Interface Flow](https://github.com/ardoviniandrea/ViniPlay/blob/main/images/viniplay-main%20ux-min.gif)
-
-### Feature Snapshots
-
-| TV Guide Page | Multi-View Page | Direct Player |
-| :---: | :---: | :---: |
-| ![TV Guide page](https://i.imgur.com/O7jk6X1.png) | ![Multi-View page](https://i.imgur.com/eE3R0Hr.png) <br> [View Animation](https://github.com/ardoviniandrea/ViniPlay/blob/main/images/multiview.gif) | ![Direct player](https://i.imgur.com/ftmxvss.png) |
-
-| DVR & Recording | Admin Activity Monitoring | Push Notifications |
-| :---: | :---: | :---: |
-| ![DVR](https://i.imgur.com/XVhT1pH.png) <br> [View Animation](https://github.com/ardoviniandrea/ViniPlay/blob/main/images/DVR.gif) | ![Admin activity](https://i.imgur.com/4zaFF1v.png) | ![Notification](https://i.imgur.com/D4hFLoI.png) <br> [View Animation](https://github.com/ardoviniandrea/ViniPlay/blob/main/images/notification.gif) |
-
-| Powerful Settings | Responsive Mobile View | Favorite Manager |
-| :---: | :---: | :---: |
-| ![Settings](https://i.imgur.com/FxOFq88.png) | ![Mobile TV Guide view](https://i.imgur.com/j8LjxSf.png) | ![Favorite manager](https://i.imgur.com/kKCnkFg.png) <br> [View Animation](https://github.com/ardoviniandrea/ViniPlay/blob/main/images/Favorites.gif) |
-
-
----
-
-## ✨ Features
-
- - 👤 **Multi-User Management**: Secure the application with a dedicated admin account. Create, edit, and manage standard user accounts.
- - 📺 **Modern TV Guide**: A high-performance, virtualized EPG grid that handles thousands of channels and programs smoothly. Features include advanced search, channel favoriting, and a "Recents" category.
- - 🖼️ **Multi-View**: Drag, drop, and resize players on a grid to watch multiple streams simultaneously. Save and load custom layouts. "Immersive view" will hide all UI elements and only leave the players on the page to maximize the watching experience.
- - 🛜 **Chromecast Support**: Cast your streams directly to any Google Cast-enabled device on your network. (This will only work if your source signal is strong and correctly passed without package missing, due to Cast framework)
- - 🔔 **Push Notifications**: Set reminders for upcoming programs and receive push notifications in your browser, even when the app is closed.
- - ⚙️ **Powerful Transcoding - even with GPUs**: The backend uses FFMPEG to process streams, ensuring compatibility across all modern browsers and devices. Create custom stream profiles to tailor transcoding settings. GPU transcoding supported. (Nvidia, InterlQSV and Vaapi)
- - 📂 **Flexible Source Management**: Add M3U and EPG sources from either local files, XC code and remote URLs. Set automatic refresh intervals for URL-based sources to keep your guide data fresh.
- - 🚀 **High Performance UI**: The frontend is built with performance in mind, using UI virtualization for the guide and efficient state management to ensure a fast and responsive experience.
- - 🐳 **Dockerized Deployment**: The entire application is packaged in a single Docker container for simple, one-command deployment using Docker or Docker Compose.
- - ▶️ **Picture-in-Picture**: Pop out the player to keep watching while you work on other things.
- - 🎥 **DVR**: Record programs using FFMPEG. Schedule recording via the TV Guide, or set specific channels and time with ease.
- - 📽️ **Single player**: Play .m3u8 and .ts links directly from the browser, with detailed console logs and recorded history
- - 👥 **Admin monitoring page**: Monitor users watch stream in real time, store historical plays, and broadcast messages to all users.
- - 📺 **VODs support**: Play your VODs from your provider, divided cleanly in the UI with a scalable grid, with filters and tabs for Movies and Series (IMPORTANT: this only workd with XC API log in)
----
-
-
-## 🚀 Getting Started
-
-ViniPlay is designed for easy deployment using Docker.
-
-### Prerequisites
-
--   Docker
--   Docker Compose (Recommended)
-    
-### Method 1: Using `docker-compose` (Recommended)
-
-1.  **Create Project Files:** Create a directory for your ViniPlay setup and add a `docker-compose.yml` and a `.env` file.
-    
-    -   `docker-compose.yml`:
-        
-        ```
-        version: "3.8"
-        services:
-          viniplay:
-            image: ardovini/viniplay:latest
-            container_name: viniplay
-            ports:
-              - "8998:8998"
-            restart: unless-stopped
-            volumes:
-              - ./viniplay-data:/data
-            env_file:
-              - ./.env
-        
-        ```
-        
-    -   `.env`:
-        
-        ```
-        # Replace this with a long, random, and secret string
-        SESSION_SECRET=your_super_secret_session_key_here
-        
-        ```
-        
-        > **Security Note:** Your `SESSION_SECRET` should be a long, random string to properly secure user sessions.
-    
-2.  **Build and Run the Container:**
-    
-    ```
-    docker-compose up --build -d
-    
-    ```
-
-### Method 2: Using `docker`
-
-1.  **Build the Image:**
-    
-    ```
-    docker build -t viniplay .
-    
-    ```
-    
-2.  **Run the Container:** Create a volume directory (`mkdir viniplay-data`) and a `.env` file first. Then run the container:
-    
-    ```
-    docker run -d \
-      -p 8998:8998 \
-      --name viniplay \
-      --env-file ./.env \
-      -v "$(pwd)/viniplay-data":/data \
-      viniplay
-    
-    ```
-    
-### First-Time Setup
-
-Once the container is running, open your browser and navigate to `http://localhost:8998`. You will be prompted to create your initial **admin account**. After creating the admin account, you can log in and start configuring your sources in the **Settings** tab.
-
----
-## 🔧 Configuration
-
-All configuration is done via the web interface in the **Settings** tab.
-
--   **Data Sources:** Add your M3U and EPG sources from remote URLs, XC Codes, uploaded files.
--   **Processing:** After adding sources, click the **Process Sources & View Guide** button to download, parse, and merge all your data.
--   **Player Settings:** Manage User-Agent strings and define `ffmpeg` stream profiles.
--   **User Management (Admin):** Admins can create, edit, and delete user accounts.
-
----
-## 🏗️ Project Structure
-
-The project is organized into a Node.js backend and a modular vanilla JavaScript frontend.
+O projeto usa **NPM Workspaces** para gerenciar os dois pacotes de forma independente:
 
 ```
 /
-├── public/                          # Frontend static files
-│   ├── js/
-│   │   ├── main.js                  # Main application entry point
-│   │   └── modules/                 # Modular JS components for each feature
-│   │       ├── api.js               # Backend API communication
-│   │       ├── auth.js              # Authentication flow
-│   │       ├── cast.js              # Google Cast logic
-│   │       ├── dvr.js               # DVR logic
-│   │       ├── guide.js             # TV Guide logic & rendering
-│   │       ├── multiview.js         # Multi-View grid and players
-│   │       ├── notification.js      # Push notification management
-│   │       ├── player.js            # Video player (mpegts.js)
-│   │       ├── settings.js          # Settings page logic
-│   │       ├── state.js             # Shared application state
-│   │       ├── ui.js                # Global UI functions (modals, etc.)
-│   │       └── utils.js             # Utility functions (parsers)
-│   ├── sw.js                        # Service Worker for push notifications
-│   └── index.html                   # Main HTML file
+├── frontend/                        # Frontend React + TypeScript + Vite
+│   ├── src/
+│   │   ├── components/              # Componentes React reutilizáveis (Players, Modals)
+│   │   ├── pages/                   # Páginas da aplicação (Admin, Guide, Multiview)
+│   │   ├── store/                   # Gerenciamento de Estado (Zustand)
+│   │   └── api/                     # Integrações com a API do Backend
+│   └── package.json                 # Dependências do Vite e React
 │
-├── server.js                        # Node.js backend (Express.js)
-├── Dockerfile                       # Docker build instructions
-├── docker-compose.yml               # Docker Compose configuration
-├── package.json                     # Node.js dependencies
-└── .env                             # Environment variables (e.g., SESSION_SECRET)
-
+├── backend/                         # Backend Node.js + Express + Zod
+│   ├── src/
+│   │   ├── routes/                  # REST API endpoints (Auth, Logs, Streams)
+│   │   ├── services/                # Regras de Negócio (Winston Logger, Xtream, FFMPEG)
+│   │   ├── db/                      # Conexões Knex e SQLite
+│   │   └── index.ts                 # Ponto de entrada do Express
+│   └── package.json                 # Dependências do Node
+│
+├── ecosystem.config.cjs             # Configuração do painel PM2 (Monitoramento)
+├── Dockerfile                       # Build multi-stage otimizado
+├── docker-compose.yml               # Orquestração do Container
+└── package.json                     # Scripts utilitários Globais
 ```
-
----
-## 🏗️ Roadmap
-
-Upcoming features and fixes include:
-
--   Add VODs support for M3U links and File uploads  
--   Making DVR .ts files seekable during recording.
--   Storing logos to improve load time.
--   Implementing full horizontal scroll in the TV Guide.
 
 ---
 ## ⚖️ License
 
-ViniPlay is licensed under **CC BY-NC-SA 4.0**:
-
-- **BY**: Give credit where credit’s due.
-- **NC**: No commercial use.
-- **SA**: Share alike if you remix.
-
-For full license details, see [LICENSE](https://creativecommons.org/licenses/by-nc-sa/4.0/).
+ViniPlay is licensed under **CC BY-NC-SA 4.0**.

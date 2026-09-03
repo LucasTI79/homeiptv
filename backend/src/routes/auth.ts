@@ -1,12 +1,24 @@
 import { Router } from 'express';
 import bcrypt from 'bcrypt';
+import rateLimit from 'express-rate-limit';
 import { db } from '../db/connection';
 import { insertAndGetId } from '../db/helpers';
+
+import { env } from '../config/env';
 
 const SALT_ROUNDS = 10;
 
 // Ports /api/auth/* from server.js:1638-1854.
 export const authRouter = Router();
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // limit each IP to 10 requests per windowMs
+  message: { error: 'Too many login attempts from this IP, please try again after 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => env.nodeEnv === 'development', // Disable limit during local Vite development
+});
 
 authRouter.get('/auth/needs-setup', async (_req, res) => {
   try {
@@ -19,7 +31,7 @@ authRouter.get('/auth/needs-setup', async (_req, res) => {
   }
 });
 
-authRouter.post('/auth/setup-admin', async (req, res) => {
+authRouter.post('/auth/setup-admin', loginLimiter, async (req, res) => {
   try {
     const totalRow = await db('users').count<{ count: string }>({ count: '*' }).first();
     const total = Number(totalRow?.count ?? 0);
@@ -47,7 +59,7 @@ authRouter.post('/auth/setup-admin', async (req, res) => {
   }
 });
 
-authRouter.post('/auth/login', async (req, res) => {
+authRouter.post('/auth/login', loginLimiter, async (req, res) => {
   try {
     const { username, password } = req.body as { username?: string; password?: string };
     const user = await db('users').where({ username }).first();

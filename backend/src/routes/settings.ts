@@ -7,7 +7,7 @@ import { getSettings, saveSettings, SETTINGS_PATH } from '../services/settings';
 import { processAndMergeSources } from '../services/sources';
 import { requireAuth, requireAdmin } from '../middleware/auth';
 import { DATA_DIR } from '../config/paths';
-import type { Settings } from '@viniplay/shared-types';
+import type { Settings } from '@homeiptv/shared-types';
 
 // Ports /api/save/settings, /api/user/settings (server.js:3011-3086) and
 // /api/settings/export, /api/settings/import (server.js:5088-5116).

@@ -1,5 +1,6 @@
 export interface Channel {
   id: string;
+  tvgId?: string;
   name: string;
   displayName?: string;
   logo?: string;

@@ -13,6 +13,40 @@ interface AllowedSourceRule {
   groups?: string[];
 }
 
+let cachedM3uRaw: string | null = null;
+let cachedM3uMtime = 0;
+
+let cachedFullEpg: Record<string, unknown> = {};
+let cachedEpgMtime = 0;
+
+function getCachedM3u(): string | null {
+  if (!fs.existsSync(LIVE_CHANNELS_M3U_PATH)) return null;
+  try {
+    const stat = fs.statSync(LIVE_CHANNELS_M3U_PATH);
+    if (stat.mtimeMs !== cachedM3uMtime || cachedM3uRaw === null) {
+      cachedM3uRaw = fs.readFileSync(LIVE_CHANNELS_M3U_PATH, 'utf-8');
+      cachedM3uMtime = stat.mtimeMs;
+    }
+    return cachedM3uRaw;
+  } catch {
+    return null;
+  }
+}
+
+function getCachedEpg(): Record<string, unknown> {
+  if (!fs.existsSync(LIVE_EPG_JSON_PATH)) return {};
+  try {
+    const stat = fs.statSync(LIVE_EPG_JSON_PATH);
+    if (stat.mtimeMs !== cachedEpgMtime || Object.keys(cachedFullEpg).length === 0) {
+      cachedFullEpg = JSON.parse(fs.readFileSync(LIVE_EPG_JSON_PATH, 'utf-8')) as Record<string, unknown>;
+      cachedEpgMtime = stat.mtimeMs;
+    }
+    return cachedFullEpg;
+  } catch {
+    return {};
+  }
+}
+
 configRouter.get('/config', requireAuth, async (req, res) => {
   try {
     const config: {
@@ -36,10 +70,9 @@ configRouter.get('/config', requireAuth, async (req, res) => {
       console.error('[API] Error fetching user permissions:', dbErr);
     }
 
-    // LOAD + FILTER M3U
-    if (fs.existsSync(LIVE_CHANNELS_M3U_PATH)) {
-      const m3uRaw = fs.readFileSync(LIVE_CHANNELS_M3U_PATH, 'utf-8');
-
+    // LOAD + FILTER M3U (from memory cache)
+    const m3uRaw = getCachedM3u();
+    if (m3uRaw) {
       if (allowedSources) {
         const lines = m3uRaw.split('\n');
         const filteredLines: string[] = [];
@@ -92,29 +125,22 @@ configRouter.get('/config', requireAuth, async (req, res) => {
       }
     }
 
-    // LOAD + FILTER EPG
-    if (fs.existsSync(LIVE_EPG_JSON_PATH)) {
-      try {
-        const fullEpg = JSON.parse(fs.readFileSync(LIVE_EPG_JSON_PATH, 'utf-8')) as Record<string, unknown>;
-        if (allowedSources) {
-          const filteredEpg: Record<string, unknown> = {};
-          for (const channelId of Object.keys(fullEpg)) {
-            const underscoreIndex = channelId.indexOf('_');
-            if (underscoreIndex !== -1) {
-              const sourceId = channelId.substring(0, underscoreIndex);
-              if (allowedSources[sourceId]?.allowed) {
-                filteredEpg[channelId] = fullEpg[channelId];
-              }
-            }
+    // LOAD + FILTER EPG (from memory cache)
+    const fullEpg = getCachedEpg();
+    if (allowedSources) {
+      const filteredEpg: Record<string, unknown> = {};
+      for (const channelId of Object.keys(fullEpg)) {
+        const underscoreIndex = channelId.indexOf('_');
+        if (underscoreIndex !== -1) {
+          const sourceId = channelId.substring(0, underscoreIndex);
+          if (allowedSources[sourceId]?.allowed) {
+            filteredEpg[channelId] = fullEpg[channelId];
           }
-          config.epgContent = filteredEpg;
-        } else {
-          config.epgContent = fullEpg;
         }
-      } catch (parseError) {
-        console.error(`[API] Error parsing merged EPG JSON: ${(parseError as Error).message}`);
-        config.epgContent = {};
       }
+      config.epgContent = filteredEpg;
+    } else {
+      config.epgContent = fullEpg;
     }
 
     // Legacy VOD JSON files (best-effort, same as server.js:2138-2148)

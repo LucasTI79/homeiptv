@@ -90,4 +90,5 @@ export interface Settings {
   notificationLeadTime: number;
   sourcesLastUpdated: string | null;
   logs: LogSettings;
+  vodPlaybackEngine?: 'native' | 'mpegts';
 }

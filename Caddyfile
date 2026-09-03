@@ -1,6 +1,6 @@
-# Caddyfile for ViniPlay
+# Caddyfile for HomeIPTV
 # Terminates HTTPS locally (self-signed via Caddy's internal CA) and
-# reverse-proxies to the viniplay app so the Google Cast Sender SDK
+# reverse-proxies to the homeiptv app so the Google Cast Sender SDK
 # gets a secure context when accessed by LAN IP.
 
 {
@@ -16,7 +16,7 @@
 	}
 
 	# Upstream is injected via the CADDY_UPSTREAM env var set in docker-compose.yml
-	# (defaults to the "viniplay" container; set it to host.docker.internal:8998
+	# (defaults to the "homeiptv" container; set it to host.docker.internal:8998
 	# to proxy to a `node server.js` running directly on the host instead).
 	reverse_proxy {$CADDY_UPSTREAM}
 }

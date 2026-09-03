@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import type { Channel, DvrJob } from '@viniplay/shared-types';
+import type { Channel, DvrJob } from '@homeiptv/shared-types';
 import type { GuideProgram } from './ProgramBlock';
 import { formatTimeWithOffset } from '../../lib/formatTime';
 import { useAuthStatus } from '../../api/auth';

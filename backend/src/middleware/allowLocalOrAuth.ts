@@ -6,9 +6,9 @@ import type { Request, Response, NextFunction } from 'express';
 // (see app.set('trust proxy', ...) in index.ts), so it can't be spoofed by an
 // external client's own X-Forwarded-For header.
 //
-// TODO(streaming domain, task #12): wire in the real activeCastTokens store
-// once Chromecast token issuance is ported -- the castToken branch below is
-// structurally in place but has nothing to look tokens up against yet.
+// routes/stream.ts wires the real activeCastTokens store in; other callers
+// (e.g. the image proxy) use the no-op emptyCastTokenStore default below
+// since cast tokens are only meaningful for stream playback.
 export interface CastTokenStore {
   get(token: string): { userId: number; username?: string; expiresAt: number } | undefined;
   delete(token: string): void;

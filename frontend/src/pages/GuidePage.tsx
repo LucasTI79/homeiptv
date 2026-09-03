@@ -1,5 +1,6 @@
-import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useConfig, useSaveUserSetting } from '../api/guide';
 import { useNotifications } from '../api/notifications';
 import { useDvrJobs } from '../api/dvr';
@@ -9,8 +10,10 @@ import { ChannelRow, ROW_HEIGHT } from '../components/guide/ChannelRow';
 import { GuideFilters } from '../components/guide/GuideFilters';
 import { GuideSearch } from '../components/guide/GuideSearch';
 import { ProgramDetailsModal } from '../components/guide/ProgramDetailsModal';
-import type { Channel } from '@viniplay/shared-types';
+import type { Channel, EpgProgram } from '@homeiptv/shared-types';
 import type { GuideProgram } from '../components/guide/ProgramBlock';
+import { GuideSkeleton } from '../components/ui/Skeleton';
+import { EmptyState } from '../components/ui/EmptyState';
 import { findNotificationForProgram } from '../api/notifications';
 import { findDvrJobForProgram } from '../api/dvr';
 
@@ -38,10 +41,40 @@ export function GuidePage() {
 
   const [now, setNow] = useState(new Date());
 
-  // Virtualization state
+  // Resizable channel column state
+  const [colWidth, setColWidth] = useState<number>(() => {
+    const saved = localStorage.getItem('guideChannelColWidth');
+    return saved ? Math.max(140, Math.min(500, parseInt(saved, 10))) : 220;
+  });
+  const [isResizing, setIsResizing] = useState(false);
+
+  const handleMouseDownResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    const startX = e.clientX;
+    const startWidth = colWidth;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const delta = moveEvent.clientX - startX;
+      const nextWidth = Math.max(140, Math.min(500, startWidth + delta));
+      setColWidth(nextWidth);
+    };
+
+    const handleMouseUp = (upEvent: MouseEvent) => {
+      setIsResizing(false);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      const finalDelta = upEvent.clientX - startX;
+      const finalWidth = Math.max(140, Math.min(500, startWidth + finalDelta));
+      localStorage.setItem('guideChannelColWidth', String(finalWidth));
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  // Scroll container ref for TanStack Virtual
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [scrollTop, setScrollTop] = useState(0);
-  const [clientHeight, setClientHeight] = useState(800);
 
   // Auto-refresh "now" line and live progress
   useEffect(() => {
@@ -49,53 +82,50 @@ export function GuidePage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Update client height for virtualization
-  useEffect(() => {
-    const updateHeight = () => {
-      if (scrollRef.current) {
-        setClientHeight(scrollRef.current.clientHeight);
-      }
-    };
-    window.addEventListener('resize', updateHeight);
-    updateHeight();
-    return () => window.removeEventListener('resize', updateHeight);
-  }, []);
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
 
-  const handleScroll = useCallback(() => {
-    if (scrollRef.current) {
-      setScrollTop(scrollRef.current.scrollTop);
-    }
-  }, []);
+  // Debounce search input to prevent expensive re-filtering on every keystroke
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   // Compute channels and programs
   const { channels, epgData, groups, sources, minDate, maxDate } = useMemo(() => {
     if (!config) return { channels: [], epgData: {}, groups: [], sources: [], minDate: '', maxDate: '' };
     
     const parsedChannels = parseM3U(config.m3uContent);
-    const epg = config.epgContent || {};
+    const epg = (config.epgContent as Record<string, EpgProgram[]>) || {};
     const favorites = new Set(config.settings.favorites || []);
     
     const groupSet = new Set<string>();
     const sourceSet = new Set<string>();
-    let minTime = Infinity;
-    let maxTime = -Infinity;
 
-    parsedChannels.forEach((c) => {
+    for (let i = 0; i < parsedChannels.length; i++) {
+      const c = parsedChannels[i];
       c.isFavorite = favorites.has(c.id);
       if (c.group) groupSet.add(c.group);
       if (c.source) sourceSet.add(c.source);
-      
-      const progs = epg[c.id] || [];
-      progs.forEach((p) => {
-        const start = new Date(p.start).getTime();
-        const stop = new Date(p.stop).getTime();
-        if (start < minTime) minTime = start;
-        if (stop > maxTime) maxTime = stop;
-      });
-    });
+    }
 
-    const minDateObj = minTime !== Infinity ? new Date(minTime) : new Date();
-    const maxDateObj = maxTime !== -Infinity ? new Date(maxTime) : new Date();
+    // Fast O(1) sampling of EPG date bounds
+    let minTime = Infinity;
+    let maxTime = -Infinity;
+    const sampleKeys = Object.keys(epg).slice(0, 15);
+    for (let i = 0; i < sampleKeys.length; i++) {
+      const progs = epg[sampleKeys[i]];
+      if (progs && progs.length > 0) {
+        const firstStart = new Date(progs[0].start).getTime();
+        const lastStop = new Date(progs[progs.length - 1].stop).getTime();
+        if (firstStart < minTime) minTime = firstStart;
+        if (lastStop > maxTime) maxTime = lastStop;
+      }
+    }
+
+    const minDateObj = Number.isFinite(minTime) ? new Date(minTime) : new Date();
+    const maxDateObj = Number.isFinite(maxTime) ? new Date(maxTime) : new Date(Date.now() + 86400000 * 2);
     
     const fmtDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
@@ -109,7 +139,7 @@ export function GuidePage() {
     };
   }, [config]);
 
-  // Apply filters and search
+  // Apply filters and debounced search
   const filteredChannels = useMemo(() => {
     if (!config) return [];
     let result = channels;
@@ -130,10 +160,10 @@ export function GuidePage() {
       result = result.filter((c) => c.source === activeSource);
     }
 
-    if (searchTerm) {
-      const q = searchTerm.toLowerCase();
-      const searchScope = config.settings.searchScope || ['channels'];
-      const includePrograms = searchScope.includes('programs');
+    if (debouncedSearchTerm) {
+      const q = debouncedSearchTerm.toLowerCase().trim();
+      const searchScope = (config.settings.searchScope as unknown as string[]) || ['channels'];
+      const includePrograms = Array.isArray(searchScope) && searchScope.includes('programs');
 
       result = result.filter((c) => {
         const chNameMatch = 
@@ -145,15 +175,17 @@ export function GuidePage() {
         if (chNameMatch) return true;
         
         if (includePrograms) {
-          const progs = epgData[c.id] || [];
-          return progs.some(p => p.title.toLowerCase().includes(q));
+          const progs = epgData[c.tvgId || c.id] || [];
+          for (let i = 0; i < progs.length; i++) {
+            if (progs[i].title.toLowerCase().includes(q)) return true;
+          }
         }
         return false;
       });
     }
 
     return result;
-  }, [channels, config, epgData, searchTerm]);
+  }, [channels, config, epgData, debouncedSearchTerm]);
 
   // Compute guide time window
   const offsetHours = config?.settings.timezoneOffset || 0;
@@ -177,10 +209,13 @@ export function GuidePage() {
   const guideEnd = new Date(guideStartUtc.getTime() + GUIDE_DURATION_HOURS * 3600000);
   const timelineWidth = GUIDE_DURATION_HOURS * HOUR_WIDTH;
 
-  // Render virtualization
-  const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - 2);
-  const endIndex = Math.min(filteredChannels.length, Math.ceil((scrollTop + clientHeight) / ROW_HEIGHT) + 2);
-  const visibleChannels = filteredChannels.slice(startIndex, endIndex);
+  // TanStack Virtualizer for TV Guide rows
+  const rowVirtualizer = useVirtualizer({
+    count: filteredChannels.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 4,
+  });
 
   // Time headers
   const timeHeaders = useMemo(() => {
@@ -215,7 +250,7 @@ export function GuidePage() {
   };
 
   if (configLoading) {
-    return <div className="p-8 text-gray-500">Loading guide data...</div>;
+    return <GuideSkeleton />;
   }
 
   const activeGroup = config?.settings.activeGroupFilter || 'all';
@@ -249,13 +284,38 @@ export function GuidePage() {
       </div>
 
       {/* Guide Grid */}
-      <div className="flex-1 overflow-auto bg-gray-950 relative" onScroll={handleScroll} ref={scrollRef}>
-        <div style={{ height: filteredChannels.length * ROW_HEIGHT + 40, width: `calc(var(--channel-col-width, 180px) + ${timelineWidth}px)` }}>
-          
+      <div className="flex-1 overflow-auto bg-gray-950 relative" ref={scrollRef}>
+        <div
+          style={{
+            ['--channel-col-width' as string]: `${colWidth}px`,
+            height: `${rowVirtualizer.getTotalSize() + 40}px`,
+            width: `${colWidth + timelineWidth}px`,
+            position: 'relative',
+          }}
+        >
           {/* Header Row */}
-          <div className="sticky top-0 z-30 flex bg-gray-900/95 backdrop-blur border-b border-gray-800 h-10 shadow-sm">
-            <div className="sticky left-0 z-40 bg-gray-900/95 border-r border-gray-800 flex items-center px-4 font-semibold text-sm text-gray-400 shrink-0" style={{ width: 'var(--channel-col-width, 180px)' }}>
-              {filteredChannels.length} Channels
+          <div className="sticky top-0 z-30 flex bg-gray-900/95 backdrop-blur border-b border-gray-800 h-10 shadow-sm select-none">
+            <div
+              className="sticky left-0 z-40 bg-gray-900/95 border-r border-gray-800 flex items-center justify-between px-3 font-semibold text-xs text-gray-400 shrink-0 relative group"
+              style={{ width: `${colWidth}px` }}
+            >
+              <span className="truncate">{filteredChannels.length} Channels</span>
+              
+              {/* Draggable Resize Handle */}
+              <div
+                onMouseDown={handleMouseDownResize}
+                onDoubleClick={() => {
+                  const next = colWidth > 220 ? 180 : 320;
+                  setColWidth(next);
+                  localStorage.setItem('guideChannelColWidth', String(next));
+                }}
+                className={`absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-blue-500/60 transition-colors z-50 flex items-center justify-center ${
+                  isResizing ? 'bg-blue-500' : ''
+                }`}
+                title="Drag to resize channel column (Double click to toggle 180px / 320px)"
+              >
+                <div className="w-0.5 h-4 bg-gray-600 group-hover:bg-white rounded-full pointer-events-none" />
+              </div>
             </div>
             <div className="relative shrink-0" style={{ width: timelineWidth }}>
               {timeHeaders}
@@ -271,33 +331,77 @@ export function GuidePage() {
           </div>
 
           {/* Virtualized Rows */}
-          <div className="relative" style={{ transform: `translateY(${startIndex * ROW_HEIGHT}px)` }}>
-            {visibleChannels.map((channel) => (
-              <ChannelRow
+          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            const channel = filteredChannels[virtualRow.index];
+            if (!channel) return null;
+            return (
+              <div
                 key={channel.id}
-                channel={channel}
-                programs={epgData[channel.id] || []}
-                guideStartUtc={guideStartUtc}
-                guideEnd={guideEnd}
-                hourWidthPixels={HOUR_WIDTH}
-                timelineWidth={timelineWidth}
-                offsetHours={offsetHours}
-                now={now}
-                showSourceBadge={sources.length > 1}
-                sourceBadgeColor="bg-blue-600"
-                notifications={notifications}
-                dvrJobs={dvrJobs}
-                onToggleFavorite={handleToggleFavorite}
-                onSelectChannel={handlePlayChannel}
-                onOpenProgram={setSelectedProgram}
-              />
-            ))}
-            {filteredChannels.length === 0 && (
-              <div className="p-8 text-center text-gray-500 col-span-full absolute w-full left-0">
-                No channels match your filters or search.
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: `${virtualRow.size}px`,
+                  transform: `translateY(${virtualRow.start + 40}px)`,
+                }}
+              >
+                <ChannelRow
+                  channel={channel}
+                  programs={epgData[channel.tvgId || channel.id] || []}
+                  guideStartUtc={guideStartUtc}
+                  guideEnd={guideEnd}
+                  hourWidthPixels={HOUR_WIDTH}
+                  timelineWidth={timelineWidth}
+                  offsetHours={offsetHours}
+                  now={now}
+                  showSourceBadge={sources.length > 1}
+                  sourceBadgeColor="bg-blue-600"
+                  notifications={notifications}
+                  dvrJobs={dvrJobs}
+                  onToggleFavorite={handleToggleFavorite}
+                  onSelectChannel={handlePlayChannel}
+                  onOpenProgram={setSelectedProgram}
+                />
               </div>
-            )}
-          </div>
+            );
+          })}
+
+          {filteredChannels.length === 0 && (
+            <div className="absolute w-full left-0 top-16 px-4 z-20">
+              <EmptyState
+                icon="📺"
+                title={channels.length === 0 ? "No IPTV Channels Configured" : "No Channels Found"}
+                description={
+                  channels.length === 0
+                    ? "You haven't configured any M3U playlists or Xtream Codes accounts yet."
+                    : "No channels match your current search query or group filter."
+                }
+                instructions={
+                  channels.length === 0
+                    ? [
+                        "Go to Settings > Playlists & Sources.",
+                        "Add an Xtream Codes server or upload an M3U playlist.",
+                        "Click 'Save & Sync' to load your live channels."
+                      ]
+                    : [
+                        "Try searching for a different channel name or number.",
+                        "Change or clear the active category filter.",
+                        "Check if the channel is active in your source playlist."
+                      ]
+                }
+                primaryAction={
+                  channels.length === 0
+                    ? { label: "Go to Settings > Sources", onClick: () => navigate('/settings') }
+                    : { label: "Clear Filters", onClick: () => {
+                        setSearchTerm('');
+                        saveSetting.mutate({ key: 'activeGroupFilter', value: 'all' });
+                        saveSetting.mutate({ key: 'activeSourceFilter', value: 'all' });
+                      }}
+                }
+              />
+            </div>
+          )}
         </div>
       </div>
 

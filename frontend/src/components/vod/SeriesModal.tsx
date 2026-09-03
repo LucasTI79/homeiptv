@@ -1,11 +1,26 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSeriesDetails, type SeriesEpisode } from '../../api/vod';
 import { proxiedLogoUrl, PLACEHOLDER_LOGO } from '../guide/ChannelRow';
 
 import { usePlaybackStore } from '../../store/playbackStore';
 import { useDownloadStore } from '../../store/downloadStore';
-import { FiHeart, FiDownload, FiCheckCircle, FiLoader } from 'react-icons/fi';
+import { toast } from 'react-hot-toast';
+import {
+  FiHeart,
+  FiDownload,
+  FiCheckCircle,
+  FiLoader,
+  FiClock,
+} from 'react-icons/fi';
 import { FaHeart } from 'react-icons/fa';
+
+function formatBytes(bytes?: number): string {
+  if (!bytes || bytes <= 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+}
 
 export interface PlayEpisodeOptions {
   url: string;
@@ -38,14 +53,67 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
   const toggleFavorite = usePlaybackStore((s) => s.toggleFavorite);
   const progress = usePlaybackStore((s) => s.progress);
 
-  const isDownloaded = useDownloadStore((s) => s.isDownloaded);
-  const isDownloadingOrQueued = useDownloadStore((s) => s.isDownloadingOrQueued);
+  const tasks = useDownloadStore((s) => s.tasks);
+  const initDownloads = useDownloadStore((s) => s.initDownloads);
   const enqueueEpisode = useDownloadStore((s) => s.enqueueEpisode);
   const enqueueSeason = useDownloadStore((s) => s.enqueueSeason);
+
+  useEffect(() => {
+    initDownloads();
+  }, [initDownloads]);
 
   const seasons = details?.seasons || {};
   const seasonKeys = Object.keys(seasons).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
   const currentEpisodes: SeriesEpisode[] = seasons[activeSeason] || (seasonKeys.length > 0 ? seasons[seasonKeys[0]] || [] : []);
+
+  const seasonEpKeys = currentEpisodes.map((_, idx) => `${seriesId}_s${activeSeason}_e${idx}`);
+  const downloadedCount = seasonEpKeys.filter((k) => tasks[k]?.status === 'completed').length;
+  const downloadingCount = seasonEpKeys.filter((k) => tasks[k]?.status === 'downloading').length;
+  const queuedCount = seasonEpKeys.filter((k) => tasks[k]?.status === 'queued').length;
+  const allSeasonDownloaded = currentEpisodes.length > 0 && downloadedCount === currentEpisodes.length;
+
+  const handleDownloadSeason = async () => {
+    const toDownload = currentEpisodes.filter((_, idx) => {
+      const k = `${seriesId}_s${activeSeason}_e${idx}`;
+      return tasks[k]?.status !== 'completed' && tasks[k]?.status !== 'downloading' && tasks[k]?.status !== 'queued';
+    });
+
+    if (toDownload.length === 0) {
+      toast('Todos os episódios desta temporada já foram baixados ou estão na fila!');
+      return;
+    }
+
+    toast.success(`${toDownload.length} episódios da Temporada ${activeSeason} adicionados à fila de downloads!`);
+    await enqueueSeason(
+      { id: seriesId, name: seriesName, logo: seriesLogo },
+      activeSeason,
+      currentEpisodes
+    );
+  };
+
+  const handleDownloadEpisode = async (ep: SeriesEpisode, idx: number) => {
+    const epKey = `${seriesId}_s${activeSeason}_e${idx}`;
+    const epTask = tasks[epKey];
+    if (epTask?.status === 'completed') {
+      toast('Este episódio já foi baixado!');
+      return;
+    }
+    if (epTask?.status === 'downloading' || epTask?.status === 'queued') {
+      toast('Este episódio já está na fila de downloads!');
+      return;
+    }
+
+    toast.success(`Download de "${ep.name || `Episódio ${idx + 1}`}" adicionado à fila!`);
+    await enqueueEpisode({
+      seriesId,
+      seriesName,
+      season: activeSeason,
+      episodeIndex: idx,
+      title: ep.name || `Episode ${idx + 1}`,
+      url: ep.url,
+      logo: seriesLogo,
+    });
+  };
 
   const handleEpisodeClick = (ep: SeriesEpisode, idx: number) => {
     let nextEpisode: { url: string; name: string; season: string; episodeIndex: number } | undefined;
@@ -77,7 +145,7 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
 
     onPlayEpisode({
       url: ep.url,
-      title: `${seriesName} - ${ep.name || `Ep ${idx + 1}`}`,
+      title: `${seriesName} - ${ep.name || `Episode ${idx + 1}`}`,
       season: activeSeason,
       episodeIndex: idx,
       episodes: currentEpisodes,
@@ -86,185 +154,275 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-800 border border-gray-700 rounded-2xl max-w-2xl w-full p-6 shadow-2xl flex flex-col max-h-[90vh]">
-        {/* Modal Header */}
-        <div className="flex justify-between items-start pb-4 border-b border-gray-700">
-          <div className="flex gap-4 items-center min-w-0">
+    <div
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6 animate-fadeIn"
+      onClick={onClose}
+    >
+      <div
+        className="bg-gray-800 border border-gray-700/80 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header with Series Info & Close */}
+        <div className="relative p-6 bg-gradient-to-b from-gray-700/40 to-transparent border-b border-gray-700/60 shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute top-4 right-4 text-gray-400 hover:text-white p-2 rounded-full hover:bg-gray-700/50 transition z-10"
+            title="Close"
+          >
+            ✕
+          </button>
+
+          <div className="flex gap-4 items-center">
             <img
               src={proxiedLogoUrl(seriesLogo)}
               alt={seriesName}
-              onError={(e) => { e.currentTarget.src = PLACEHOLDER_LOGO; }}
-              className="w-14 h-20 object-cover rounded-lg bg-gray-900 border border-gray-700 shrink-0"
+              className="w-16 h-24 sm:w-20 sm:h-28 object-cover rounded-xl shadow-lg border border-gray-700/80 bg-gray-900 shrink-0"
+              onError={(e) => {
+                e.currentTarget.src = PLACEHOLDER_LOGO;
+              }}
             />
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h2 className="text-xl font-bold text-white truncate">{seriesName}</h2>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-3">
+                <h2 className="text-xl sm:text-2xl font-bold text-white truncate" title={seriesName}>
+                  {seriesName}
+                </h2>
                 <button
                   type="button"
                   onClick={() => toggleFavorite(seriesId)}
-                  className={`p-1.5 rounded-lg border transition ${
+                  className={`p-1.5 rounded-lg transition ${
                     isFavorite
-                      ? 'bg-rose-500/20 text-rose-400 border-rose-500/30 hover:bg-rose-500/30'
-                      : 'bg-gray-700/50 text-gray-400 border-gray-600 hover:text-white hover:bg-gray-700'
+                      ? 'text-rose-500 hover:bg-gray-700/50'
+                      : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
                   }`}
-                  title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                  title={isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}
                 >
-                  {isFavorite ? <FaHeart className="w-4 h-4 text-rose-500" /> : <FiHeart className="w-4 h-4" />}
+                  {isFavorite ? <FaHeart className="w-5 h-5" /> : <FiHeart className="w-5 h-5" />}
                 </button>
               </div>
-              <p className="text-xs text-blue-400 mt-0.5">Series Details</p>
+              <p className="text-xs text-gray-400 mt-1">
+                {seasonKeys.length} {seasonKeys.length === 1 ? 'Season' : 'Seasons'} Available
+              </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-white text-2xl leading-none p-1"
-          >
-            &times;
-          </button>
         </div>
 
-        {/* Modal Body */}
-        {isLoading ? (
-          <div className="p-12 text-center text-gray-400 space-y-2">
-            <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full mx-auto" />
-            <p className="text-sm">Fetching series episodes &amp; seasons...</p>
-          </div>
-        ) : error ? (
-          <div className="p-8 text-center text-red-400 space-y-2">
-            <p className="text-sm font-semibold">Failed to load episode details for this series.</p>
-            <p className="text-xs text-gray-500">The provider might not have episode data available.</p>
-          </div>
-        ) : seasonKeys.length === 0 ? (
-          <div className="p-8 text-center text-gray-400">
-            No episodes found for this series.
-          </div>
-        ) : (
-          <div className="flex-1 flex flex-col min-h-0 pt-4 space-y-4">
-            {/* Season Selector Tabs & Batch Download */}
-            <div className="flex justify-between items-center pb-2 border-b border-gray-700/60 shrink-0 gap-2 flex-wrap">
-              <div className="flex gap-2 overflow-x-auto">
-                {seasonKeys.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => setActiveSeason(s)}
-                    className={`px-4 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
-                      activeSeason === s || (!seasons[activeSeason] && s === seasonKeys[0])
-                        ? 'bg-blue-600 text-white shadow'
-                        : 'bg-gray-900/60 text-gray-400 hover:text-white'
-                    }`}
-                  >
-                    Season {s} ({seasons[s]?.length || 0})
-                  </button>
-                ))}
+        {/* Content Body */}
+        <div className="flex-1 overflow-hidden p-6 flex flex-col min-h-0">
+          {isLoading ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : error || !details ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center p-6 text-gray-400">
+              <p className="text-rose-400 font-semibold mb-2">Failed to load series details</p>
+              <p className="text-xs max-w-sm">Please check your connection and try again.</p>
+            </div>
+          ) : seasonKeys.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
+              No episodes found for this series.
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col min-h-0 pt-1 space-y-4">
+              {/* Season Selector Tabs & Batch Download */}
+              <div className="flex justify-between items-center pb-2 border-b border-gray-700/60 shrink-0 gap-2 flex-wrap">
+                <div className="flex gap-2 overflow-x-auto">
+                  {seasonKeys.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setActiveSeason(s)}
+                      className={`px-4 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                        activeSeason === s || (!seasons[activeSeason] && s === seasonKeys[0])
+                          ? 'bg-blue-600 text-white shadow'
+                          : 'bg-gray-900/60 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      Season {s} ({seasons[s]?.length || 0})
+                    </button>
+                  ))}
+                </div>
+
+                {currentEpisodes.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    {allSeasonDownloaded ? (
+                      <div className="px-3 py-1.5 bg-emerald-600/20 text-emerald-400 border border-emerald-500/40 rounded-lg text-xs font-semibold flex items-center gap-1.5 shrink-0 shadow">
+                        <FiCheckCircle className="w-4 h-4 text-emerald-400" />
+                        <span>Temporada Baixada ({downloadedCount}/{currentEpisodes.length})</span>
+                      </div>
+                    ) : downloadingCount > 0 || queuedCount > 0 ? (
+                      <div className="flex items-center gap-2">
+                        <div className="px-3 py-1.5 bg-blue-600/20 text-blue-400 border border-blue-500/40 rounded-lg text-xs font-semibold flex items-center gap-1.5 shrink-0 animate-pulse">
+                          <FiLoader className="w-3.5 h-3.5 animate-spin text-blue-400" />
+                          <span>Baixando ({downloadedCount}/{currentEpisodes.length} prontos)</span>
+                        </div>
+                        {currentEpisodes.length > (downloadedCount + downloadingCount + queuedCount) && (
+                          <button
+                            type="button"
+                            onClick={handleDownloadSeason}
+                            className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 hover:text-white rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 shrink-0 shadow border border-gray-600"
+                          >
+                            <FiDownload className="w-3.5 h-3.5" />
+                            <span>Baixar Restantes</span>
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleDownloadSeason}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 shrink-0 shadow"
+                        title="Baixar todos os episódios desta temporada para assistir offline"
+                      >
+                        <FiDownload className="w-3.5 h-3.5" />
+                        <span>Baixar Temporada ({currentEpisodes.length})</span>
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {currentEpisodes.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    enqueueSeason(
-                      { id: seriesId, name: seriesName, logo: seriesLogo },
-                      activeSeason,
-                      currentEpisodes
-                    );
-                  }}
-                  className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 hover:text-white rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 shrink-0 shadow border border-gray-600"
-                  title="Baixar todos os episódios desta temporada para assistir offline"
-                >
-                  <FiDownload className="w-3.5 h-3.5" />
-                  <span>Baixar Temporada ({currentEpisodes.length})</span>
-                </button>
-              )}
-            </div>
+              {/* Episode List */}
+              <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                {currentEpisodes.map((ep, idx) => {
+                  const epKey = `${seriesId}_s${activeSeason}_e${idx}`;
+                  const epProgress = progress[epKey];
+                  const progressPct = epProgress && epProgress.duration > 0
+                    ? Math.min(100, Math.round((epProgress.currentTime / epProgress.duration) * 100))
+                    : 0;
 
-            {/* Episode List */}
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-              {currentEpisodes.map((ep, idx) => {
-                const epKey = `${seriesId}_s${activeSeason}_e${idx}`;
-                const epProgress = progress[epKey];
-                const progressPct = epProgress && epProgress.duration > 0
-                  ? Math.min(100, Math.round((epProgress.currentTime / epProgress.duration) * 100))
-                  : 0;
+                  const epTask = tasks[epKey];
+                  const isEpDownloaded = epTask?.status === 'completed';
+                  const isEpDownloading = epTask?.status === 'downloading';
+                  const isEpQueued = epTask?.status === 'queued';
+                  const downloadPct = epTask && epTask.totalBytes > 0
+                    ? Math.min(100, Math.round((epTask.downloadedBytes / epTask.totalBytes) * 100))
+                    : 0;
 
-                const isEpDownloaded = isDownloaded(epKey);
-                const isEpDownloading = isDownloadingOrQueued(epKey);
-
-                return (
-                  <div
-                    key={ep.url || idx}
-                    className="bg-gray-900/60 border border-gray-700/50 hover:border-blue-500/50 rounded-xl p-3 flex justify-between items-center transition group relative overflow-hidden"
-                  >
-                    {progressPct > 0 && (
-                      <div
-                        className="absolute bottom-0 left-0 h-1 bg-blue-500 transition-all"
-                        style={{ width: `${progressPct}%` }}
-                        title={`${progressPct}% watched`}
-                      />
-                    )}
-                    <div className="min-w-0 pr-3">
-                      <p className="text-sm font-semibold text-white truncate">{ep.name || `Episode ${idx + 1}`}</p>
-                      {progressPct > 0 && (
-                        <p className="text-[11px] text-blue-400 mt-0.5">{progressPct}% watched</p>
+                  return (
+                    <div
+                      key={ep.url || idx}
+                      className={`border rounded-xl p-3 flex justify-between items-center transition group relative overflow-hidden ${
+                        isEpDownloading
+                          ? 'bg-blue-950/30 border-blue-500/50 shadow-md shadow-blue-500/10'
+                          : isEpDownloaded
+                          ? 'bg-gray-900/60 border-emerald-500/30'
+                          : 'bg-gray-900/60 border-gray-700/50 hover:border-blue-500/50'
+                      }`}
+                    >
+                      {/* Watch progress bar */}
+                      {progressPct > 0 && !isEpDownloading && (
+                        <div
+                          className="absolute bottom-0 left-0 h-1 bg-blue-500 transition-all"
+                          style={{ width: `${progressPct}%` }}
+                          title={`${progressPct}% watched`}
+                        />
                       )}
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {/* Episode Download Button */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!isEpDownloaded && !isEpDownloading) {
-                            enqueueEpisode({
-                              seriesId,
-                              seriesName,
-                              season: activeSeason,
-                              episodeIndex: idx,
-                              title: ep.name || `Episode ${idx + 1}`,
-                              url: ep.url,
-                              logo: seriesLogo,
-                            });
-                          }
-                        }}
-                        className={`p-2 rounded-lg border transition text-xs font-medium flex items-center justify-center ${
-                          isEpDownloaded
-                            ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/40 hover:bg-emerald-600/30'
-                            : isEpDownloading
-                            ? 'bg-blue-600/20 text-blue-400 border-blue-500/40 animate-pulse'
-                            : 'bg-gray-800/80 text-gray-400 border-gray-700 hover:text-white hover:bg-gray-700'
-                        }`}
-                        title={
-                          isEpDownloaded
-                            ? 'Episódio baixado para reprodução offline'
-                            : isEpDownloading
-                            ? 'Baixando episódio...'
-                            : 'Baixar episódio offline'
-                        }
-                      >
-                        {isEpDownloaded ? (
-                          <FiCheckCircle className="w-3.5 h-3.5 text-emerald-400" />
-                        ) : isEpDownloading ? (
-                          <FiLoader className="w-3.5 h-3.5 animate-spin text-blue-400" />
-                        ) : (
-                          <FiDownload className="w-3.5 h-3.5" />
-                        )}
-                      </button>
 
-                      {/* Play Button */}
-                      <button
-                        type="button"
-                        onClick={() => handleEpisodeClick(ep, idx)}
-                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition shrink-0 flex items-center gap-1.5 shadow"
-                      >
-                        <span>▶</span> {progressPct > 0 ? 'Resume' : 'Play'}
-                      </button>
+                      {/* Active download progress bar */}
+                      {isEpDownloading && (
+                        <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-800 overflow-hidden">
+                          <div
+                            className="bg-gradient-to-r from-blue-500 to-emerald-400 h-full transition-all duration-300"
+                            style={{ width: `${Math.max(2, downloadPct)}%` }}
+                          />
+                        </div>
+                      )}
+
+                      <div className="min-w-0 pr-3 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[10px] font-semibold text-gray-400 bg-gray-800 px-1.5 py-0.5 rounded">
+                            E{idx + 1}
+                          </span>
+                          <p className="text-sm font-semibold text-white truncate">{ep.name || `Episode ${idx + 1}`}</p>
+                        </div>
+
+                        {/* Download & watch status badges */}
+                        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                          {isEpDownloading && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-600/30 text-blue-300 border border-blue-500/50 flex items-center gap-1.5 animate-pulse">
+                              <FiLoader className="w-3 h-3 animate-spin text-blue-400" />
+                              <span>Baixando: {downloadPct}%</span>
+                              {epTask.speedBytesPerSec ? (
+                                <span className="text-blue-400 font-semibold">• {formatBytes(epTask.speedBytesPerSec)}/s</span>
+                              ) : null}
+                              <span>• {formatBytes(epTask.downloadedBytes)}</span>
+                            </span>
+                          )}
+
+                          {isEpQueued && (
+                            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-600/20 text-amber-400 border border-amber-500/30 flex items-center gap-1">
+                              <FiClock className="w-3 h-3" />
+                              <span>Na fila de download</span>
+                            </span>
+                          )}
+
+                          {isEpDownloaded && (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                              <FiCheckCircle className="w-3 h-3 text-emerald-400" />
+                              <span>Baixado offline {epTask.downloadedBytes ? `• ${formatBytes(epTask.downloadedBytes)}` : ''}</span>
+                            </span>
+                          )}
+
+                          {progressPct > 0 && (
+                            <span className="text-[11px] text-blue-400 font-medium">
+                              {progressPct}% assistido
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {/* Episode Download Button */}
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadEpisode(ep, idx)}
+                          className={`p-2 rounded-lg border transition text-xs font-medium flex items-center justify-center ${
+                            isEpDownloaded
+                              ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/40 hover:bg-emerald-600/30'
+                              : isEpDownloading
+                              ? 'bg-blue-600/30 text-blue-300 border-blue-500/50'
+                              : isEpQueued
+                              ? 'bg-amber-600/20 text-amber-400 border-amber-500/30'
+                              : 'bg-gray-800/80 text-gray-400 border-gray-700 hover:text-white hover:bg-gray-700'
+                          }`}
+                          title={
+                            isEpDownloaded
+                              ? 'Episódio já baixado para assistir offline'
+                              : isEpDownloading
+                              ? `Baixando episódio (${downloadPct}%)`
+                              : isEpQueued
+                              ? 'Aguardando na fila de download'
+                              : 'Baixar episódio offline'
+                          }
+                        >
+                          {isEpDownloaded ? (
+                            <FiCheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                          ) : isEpDownloading ? (
+                            <FiLoader className="w-3.5 h-3.5 animate-spin text-blue-400" />
+                          ) : isEpQueued ? (
+                            <FiClock className="w-3.5 h-3.5 text-amber-400" />
+                          ) : (
+                            <FiDownload className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+
+                        {/* Play Button */}
+                        <button
+                          type="button"
+                          onClick={() => handleEpisodeClick(ep, idx)}
+                          className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition shrink-0 flex items-center gap-1.5 shadow"
+                        >
+                          <span>▶</span> {progressPct > 0 ? 'Resume' : 'Play'}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

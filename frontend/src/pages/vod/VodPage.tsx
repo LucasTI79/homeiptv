@@ -12,6 +12,7 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { SeriesModal, type PlayEpisodeOptions } from '../../components/vod/SeriesModal';
 import { FiPlay, FiX, FiHeart, FiClock, FiDownload, FiCheckCircle, FiLoader, FiInfo } from 'react-icons/fi';
 import { FaHeart } from 'react-icons/fa';
+import { toast } from 'react-hot-toast';
 
 import { PLAYBACK_CONFIG } from '../../constants';
 
@@ -34,8 +35,7 @@ export function VodPage() {
   const favorites = usePlaybackStore((s) => s.favorites);
   const toggleFavorite = usePlaybackStore((s) => s.toggleFavorite);
   const isFavorite = usePlaybackStore((s) => s.isFavorite);
-  const isDownloaded = useDownloadStore((s) => s.isDownloaded);
-  const isDownloadingOrQueued = useDownloadStore((s) => s.isDownloadingOrQueued);
+  const tasks = useDownloadStore((s) => s.tasks);
   const enqueueMovie = useDownloadStore((s) => s.enqueueMovie);
   const initDownloads = useDownloadStore((s) => s.initDownloads);
 
@@ -517,45 +517,71 @@ export function VodPage() {
                     </button>
 
                     {/* Movie Download Button */}
-                    {item.type === 'movie' && item.url && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const movieId = `movie_${item.id}`;
-                          if (!isDownloaded(movieId) && !isDownloadingOrQueued(movieId)) {
+                    {item.type === 'movie' && item.url && (() => {
+                      const taskId = `movie_${item.id}`;
+                      const movieTask = tasks[taskId];
+                      const isDownloaded = movieTask?.status === 'completed';
+                      const isDownloading = movieTask?.status === 'downloading';
+                      const isQueued = movieTask?.status === 'queued';
+                      const downloadPct = movieTask && movieTask.totalBytes > 0
+                        ? Math.min(100, Math.round((movieTask.downloadedBytes / movieTask.totalBytes) * 100))
+                        : 0;
+
+                      return (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (isDownloaded) {
+                              toast('Este filme já foi baixado para assistir offline!');
+                              return;
+                            }
+                            if (isDownloading || isQueued) {
+                              toast('Este filme já está na fila de downloads!');
+                              return;
+                            }
+                            toast.success(`Download de "${item.name}" adicionado à fila!`);
                             enqueueMovie({
                               id: item.id,
                               title: item.name,
                               url: item.url!,
                               logo: item.logo,
                             });
+                          }}
+                          className={`absolute bottom-2 right-2 px-2 py-1.5 rounded-lg backdrop-blur-xs transition z-10 flex items-center gap-1.5 text-xs font-semibold ${
+                            isDownloaded
+                              ? 'bg-emerald-600/90 text-white shadow'
+                              : isDownloading
+                              ? 'bg-blue-600/90 text-white animate-pulse shadow'
+                              : isQueued
+                              ? 'bg-amber-600/90 text-white shadow'
+                              : 'bg-black/60 text-gray-300 hover:text-white hover:bg-black/80 opacity-0 group-hover:opacity-100'
+                          }`}
+                          title={
+                            isDownloaded
+                              ? 'Filme baixado para assistir offline'
+                              : isDownloading
+                              ? `Baixando filme (${downloadPct}%)`
+                              : isQueued
+                              ? 'Na fila de download'
+                              : 'Baixar filme para assistir offline'
                           }
-                        }}
-                        className={`absolute bottom-2 right-2 p-1.5 rounded-lg backdrop-blur-xs transition z-10 ${
-                          isDownloaded(`movie_${item.id}`)
-                            ? 'bg-emerald-600/90 text-white shadow'
-                            : isDownloadingOrQueued(`movie_${item.id}`)
-                            ? 'bg-blue-600/90 text-white animate-pulse'
-                            : 'bg-black/60 text-gray-300 hover:text-white hover:bg-black/80 opacity-0 group-hover:opacity-100'
-                        }`}
-                        title={
-                          isDownloaded(`movie_${item.id}`)
-                            ? 'Filme baixado para assistir offline'
-                            : isDownloadingOrQueued(`movie_${item.id}`)
-                            ? 'Download em andamento...'
-                            : 'Baixar filme para assistir offline'
-                        }
-                      >
-                        {isDownloaded(`movie_${item.id}`) ? (
-                          <FiCheckCircle className="w-3.5 h-3.5" />
-                        ) : isDownloadingOrQueued(`movie_${item.id}`) ? (
-                          <FiLoader className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <FiDownload className="w-3.5 h-3.5" />
-                        )}
-                      </button>
-                    )}
+                        >
+                          {isDownloaded ? (
+                            <FiCheckCircle className="w-3.5 h-3.5" />
+                          ) : isDownloading ? (
+                            <>
+                              <FiLoader className="w-3.5 h-3.5 animate-spin" />
+                              <span className="text-[10px]">{downloadPct}%</span>
+                            </>
+                          ) : isQueued ? (
+                            <FiClock className="w-3.5 h-3.5" />
+                          ) : (
+                            <FiDownload className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      );
+                    })()}
 
                     <div className="absolute inset-0 bg-blue-600/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
                       <span className="w-12 h-12 rounded-full bg-blue-600 text-white flex items-center justify-center text-xl shadow-xl">▶</span>

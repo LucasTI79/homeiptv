@@ -75,12 +75,25 @@ function Gate() {
 }
 
 import { TooltipProvider } from './components/ui/Tooltip';
+import { Toaster } from 'react-hot-toast';
 
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <CastProvider>
         <TooltipProvider>
+          <Toaster
+            position="bottom-right"
+            toastOptions={{
+              style: {
+                background: '#1f2937',
+                color: '#f3f4f6',
+                border: '1px solid #374151',
+                borderRadius: '0.75rem',
+                fontSize: '0.875rem',
+              },
+            }}
+          />
           <BrowserRouter>
             <Gate />
           </BrowserRouter>

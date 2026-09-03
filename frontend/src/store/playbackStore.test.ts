@@ -132,4 +132,128 @@ describe('usePlaybackStore with IndexedDB integration', () => {
     dbFavs = await db.getFavorites();
     expect(dbFavs).not.toContain('movie_fav_123');
   });
+
+  it('automatically marks finished episode as watched when reaching completion threshold', async () => {
+    await usePlaybackStore.getState().init();
+
+    usePlaybackStore.getState().saveProgress({
+      id: 'series_bb_s1_e0',
+      seriesId: 'bb',
+      seriesName: 'Breaking Bad',
+      season: '1',
+      episodeIndex: 0,
+      title: 'Pilot',
+      type: 'series',
+      url: 'http://test.com/s1e0.mp4',
+      currentTime: 960,
+      duration: 1000,
+    });
+
+    // Episode is marked as watched in memory
+    expect(usePlaybackStore.getState().isWatched('series_bb_s1_e0')).toBe(true);
+
+    // Persisted in IndexedDB watched_episodes
+    const dbWatched = await db.getWatchedEpisodes();
+    expect(dbWatched.some((w) => w.id === 'series_bb_s1_e0')).toBe(true);
+  });
+
+  it('manages manual episode watched toggle', async () => {
+    await usePlaybackStore.getState().init();
+
+    await usePlaybackStore.getState().markEpisodeWatched({
+      id: 'ep_manual_1',
+      seriesId: 'series_x',
+      seriesName: 'Series X',
+      season: '1',
+      episodeIndex: 0,
+      title: 'Ep 1',
+      mediaType: 'series',
+      autoMarked: false,
+    });
+
+    expect(usePlaybackStore.getState().isWatched('ep_manual_1')).toBe(true);
+    expect(await db.isEpisodeWatched('ep_manual_1')).toBe(true);
+
+    await usePlaybackStore.getState().unmarkEpisodeWatched('ep_manual_1');
+    expect(usePlaybackStore.getState().isWatched('ep_manual_1')).toBe(false);
+    expect(await db.isEpisodeWatched('ep_manual_1')).toBe(false);
+  });
+
+  it('manages batch season watched and unmark operations', async () => {
+    await usePlaybackStore.getState().init();
+
+    const eps = [
+      { name: 'Episode 1', url: 'http://test.com/1.mp4' },
+      { name: 'Episode 2', url: 'http://test.com/2.mp4' },
+      { name: 'Episode 3', url: 'http://test.com/3.mp4' },
+    ];
+
+    await usePlaybackStore.getState().markSeasonWatched(
+      { id: 'dexter', name: 'Dexter' },
+      '1',
+      eps
+    );
+
+    expect(usePlaybackStore.getState().isWatched('dexter_s1_e0')).toBe(true);
+    expect(usePlaybackStore.getState().isWatched('dexter_s1_e1')).toBe(true);
+    expect(usePlaybackStore.getState().isWatched('dexter_s1_e2')).toBe(true);
+    expect(usePlaybackStore.getState().getSeriesWatchedCount('dexter')).toBe(3);
+
+    await usePlaybackStore.getState().unmarkSeasonWatched('dexter', '1', eps);
+    expect(usePlaybackStore.getState().isWatched('dexter_s1_e0')).toBe(false);
+    expect(usePlaybackStore.getState().getSeriesWatchedCount('dexter')).toBe(0);
+  });
+
+  it('clears in-progress episodes for a specific series', async () => {
+    await usePlaybackStore.getState().init();
+
+    usePlaybackStore.getState().saveProgress({
+      id: 'series_a_s1_e0',
+      seriesId: 'series_a',
+      title: 'Series A Ep 1',
+      type: 'series',
+      url: 'http://test.com/a1.mp4',
+      currentTime: 100,
+      duration: 1000,
+    });
+
+    usePlaybackStore.getState().saveProgress({
+      id: 'series_b_s1_e0',
+      seriesId: 'series_b',
+      title: 'Series B Ep 1',
+      type: 'series',
+      url: 'http://test.com/b1.mp4',
+      currentTime: 100,
+      duration: 1000,
+    });
+
+    expect(usePlaybackStore.getState().progress['series_a_s1_e0']).toBeDefined();
+    expect(usePlaybackStore.getState().progress['series_b_s1_e0']).toBeDefined();
+
+    await usePlaybackStore.getState().clearSeriesProgress('series_a');
+
+    expect(usePlaybackStore.getState().progress['series_a_s1_e0']).toBeUndefined();
+    expect(usePlaybackStore.getState().progress['series_b_s1_e0']).toBeDefined();
+  });
+
+  it('clears all in-progress playback items', async () => {
+    await usePlaybackStore.getState().init();
+
+    usePlaybackStore.getState().saveProgress({
+      id: 'movie_p1',
+      title: 'Movie 1',
+      type: 'movie',
+      url: 'http://test.com/m1.mp4',
+      currentTime: 100,
+      duration: 1000,
+    });
+
+    expect(Object.keys(usePlaybackStore.getState().progress).length).toBe(1);
+
+    await usePlaybackStore.getState().clearAllProgress();
+
+    expect(Object.keys(usePlaybackStore.getState().progress).length).toBe(0);
+    const dbProgress = await db.getProgressList();
+    expect(dbProgress.length).toBe(0);
+  });
 });

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import * as db from '../services/db';
+import { PLAYBACK_CONFIG } from '../constants';
 
 export interface VodProgressItem {
   id: string;            // Unique identifier for the item (e.g. movie id, or `${seriesId}_s${season}_e${episodeIndex}`)
@@ -20,6 +21,7 @@ export interface VodProgressItem {
 
 interface PlaybackState {
   progress: Record<string, VodProgressItem>;
+  watchedMap: Record<string, db.WatchedEpisodeRecord>;
   favorites: string[];   // Vod item IDs
   isHydrated: boolean;
   
@@ -33,10 +35,32 @@ interface PlaybackState {
   toggleFavorite: (id: string) => void;
   setFavorites: (favorites: string[]) => void;
   isFavorite: (id: string) => boolean;
+
+  // Watched History Actions
+  markEpisodeWatched: (record: Omit<db.WatchedEpisodeRecord, 'watchedAt'>) => Promise<void>;
+  unmarkEpisodeWatched: (id: string) => Promise<void>;
+  markSeasonWatched: (
+    series: { id: string; name: string },
+    season: string,
+    episodes: Array<{ name: string; url: string }>
+  ) => Promise<void>;
+  unmarkSeasonWatched: (
+    seriesId: string,
+    season: string,
+    episodes: Array<{ name: string; url: string }>
+  ) => Promise<void>;
+  isWatched: (id: string) => boolean;
+  getSeriesWatchedCount: (seriesId: string) => number;
+
+  // In-Progress Cleanup Actions
+  clearSeriesProgress: (seriesId: string) => Promise<void>;
+  clearAllProgress: () => Promise<void>;
 }
 
-const STORAGE_KEY_PROGRESS = 'viniplay_vod_progress';
-const STORAGE_KEY_FAVORITES = 'viniplay_vod_favorites';
+const {
+  completionThreshold: VOD_COMPLETION_THRESHOLD,
+  storageKeys: { progress: STORAGE_KEY_PROGRESS, favorites: STORAGE_KEY_FAVORITES }
+} = PLAYBACK_CONFIG;
 
 function loadInitialProgress(): Record<string, VodProgressItem> {
   try {
@@ -60,15 +84,17 @@ function loadInitialFavorites(): string[] {
 
 export const usePlaybackStore = create<PlaybackState>((set, get) => ({
   progress: loadInitialProgress(),
+  watchedMap: {},
   favorites: loadInitialFavorites(),
   isHydrated: false,
 
   init: async () => {
     try {
       await db.migrateFromLocalStorage();
-      const [dbProgressList, dbFavorites] = await Promise.all([
+      const [dbProgressList, dbFavorites, dbWatchedList] = await Promise.all([
         db.getProgressList(),
         db.getFavorites(),
+        db.getWatchedEpisodes(),
       ]);
 
       const progressMap: Record<string, VodProgressItem> = {};
@@ -87,9 +113,15 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
       const favSet = new Set([...dbFavorites, ...loadInitialFavorites()]);
       const finalFavs = Array.from(favSet);
 
+      const watchedMap: Record<string, db.WatchedEpisodeRecord> = {};
+      for (const w of dbWatchedList) {
+        watchedMap[w.id] = w;
+      }
+
       set({
         progress: progressMap,
         favorites: finalFavs,
+        watchedMap,
         isHydrated: true,
       });
 
@@ -105,8 +137,8 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
   },
 
   saveProgress: (item) => {
-    // If progress is >= 95%, we consider the current episode/movie finished
-    const isFinished = item.duration > 0 && (item.currentTime / item.duration) >= 0.95;
+    // If progress is >= threshold, we consider the current episode/movie finished
+    const isFinished = item.duration > 0 && (item.currentTime / item.duration) >= VOD_COMPLETION_THRESHOLD;
     const updatedAt = Date.now();
 
     // Check if this is a series and whether a subsequent episode exists
@@ -177,6 +209,29 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
     });
 
     if (isFinished) {
+      const watchedRecord: db.WatchedEpisodeRecord = {
+        id: item.id,
+        seriesId: item.seriesId,
+        seriesName: item.seriesName,
+        season: item.season,
+        episodeIndex: item.episodeIndex,
+        title: item.title,
+        mediaType: item.type,
+        watchedAt: updatedAt,
+        autoMarked: true,
+      };
+
+      set((state) => ({
+        watchedMap: {
+          ...state.watchedMap,
+          [item.id]: watchedRecord,
+        },
+      }));
+
+      db.saveWatchedEpisode(watchedRecord).catch((err) => {
+        console.warn('[playbackStore] Failed to save watched episode:', err);
+      });
+
       db.removeProgress(item.id);
 
       // Persist the next episode in IndexedDB if available
@@ -284,6 +339,104 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
 
   isFavorite: (id) => {
     return get().favorites.includes(id);
+  },
+
+  markEpisodeWatched: async (record) => {
+    const fullRecord: db.WatchedEpisodeRecord = {
+      ...record,
+      watchedAt: Date.now(),
+    };
+    set((state) => ({
+      watchedMap: {
+        ...state.watchedMap,
+        [record.id]: fullRecord,
+      },
+    }));
+    await db.saveWatchedEpisode(fullRecord);
+  },
+
+  unmarkEpisodeWatched: async (id) => {
+    set((state) => {
+      const next = { ...state.watchedMap };
+      delete next[id];
+      return { watchedMap: next };
+    });
+    await db.removeWatchedEpisode(id);
+  },
+
+  markSeasonWatched: async (series, season, episodes) => {
+    const now = Date.now();
+    const records: db.WatchedEpisodeRecord[] = episodes.map((ep, idx) => ({
+      id: `${series.id}_s${season}_e${idx}`,
+      seriesId: series.id,
+      seriesName: series.name,
+      season,
+      episodeIndex: idx,
+      title: ep.name || `Episódio ${idx + 1}`,
+      mediaType: 'series',
+      watchedAt: now,
+      autoMarked: false,
+    }));
+
+    set((state) => {
+      const next = { ...state.watchedMap };
+      for (const rec of records) {
+        next[rec.id] = rec;
+      }
+      return { watchedMap: next };
+    });
+
+    await db.saveWatchedEpisodesBatch(records);
+  },
+
+  unmarkSeasonWatched: async (seriesId, season, episodes) => {
+    const ids = episodes.map((_, idx) => `${seriesId}_s${season}_e${idx}`);
+    set((state) => {
+      const next = { ...state.watchedMap };
+      for (const id of ids) {
+        delete next[id];
+      }
+      return { watchedMap: next };
+    });
+    await db.removeWatchedEpisodesBatch(ids);
+  },
+
+  isWatched: (id) => {
+    return !!get().watchedMap[id];
+  },
+
+  getSeriesWatchedCount: (seriesId) => {
+    const watched = Object.values(get().watchedMap);
+    return watched.filter((w) => w.seriesId === seriesId).length;
+  },
+
+  clearSeriesProgress: async (seriesId) => {
+    const keysToRemove: string[] = [];
+    set((state) => {
+      const next = { ...state.progress };
+      for (const [key, item] of Object.entries(next)) {
+        if (item.seriesId === seriesId || item.id.startsWith(`${seriesId}_`)) {
+          delete next[key];
+          keysToRemove.push(key);
+        }
+      }
+      try {
+        localStorage.setItem(STORAGE_KEY_PROGRESS, JSON.stringify(next));
+      } catch {}
+      return { progress: next };
+    });
+
+    for (const key of keysToRemove) {
+      await db.removeProgress(key);
+    }
+  },
+
+  clearAllProgress: async () => {
+    try {
+      localStorage.removeItem(STORAGE_KEY_PROGRESS);
+    } catch {}
+    set({ progress: {} });
+    await db.clearProgress();
   },
 }));
 

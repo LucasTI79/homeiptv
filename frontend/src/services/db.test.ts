@@ -15,8 +15,17 @@ import {
   saveDownloadTask,
   removeDownloadTask,
   clearDownloadTasks,
+  getWatchedEpisodes,
+  getWatchedEpisodesBySeries,
+  isEpisodeWatched,
+  saveWatchedEpisode,
+  saveWatchedEpisodesBatch,
+  removeWatchedEpisode,
+  removeWatchedEpisodesBatch,
+  clearWatchedEpisodes,
   type OfflineProgressItem,
   type DownloadTask,
+  type WatchedEpisodeRecord,
 } from './db';
 
 describe('Offline DB (IndexedDB)', () => {
@@ -234,5 +243,72 @@ describe('Offline DB (IndexedDB)', () => {
     await clearDownloadTasks();
     const emptyList = await getDownloadTasks();
     expect(emptyList.length).toBe(0);
+  });
+
+  it('manages watched episodes store, querying by series, and batch operations', async () => {
+    const ep1: WatchedEpisodeRecord = {
+      id: 'bb_s1_e0',
+      seriesId: 'bb',
+      seriesName: 'Breaking Bad',
+      season: '1',
+      episodeIndex: 0,
+      title: 'Pilot',
+      mediaType: 'series',
+      watchedAt: 1000,
+      autoMarked: true,
+    };
+    const ep2: WatchedEpisodeRecord = {
+      id: 'bb_s1_e1',
+      seriesId: 'bb',
+      seriesName: 'Breaking Bad',
+      season: '1',
+      episodeIndex: 1,
+      title: 'Cat\'s in the Bag...',
+      mediaType: 'series',
+      watchedAt: 2000,
+      autoMarked: false,
+    };
+    const movie: WatchedEpisodeRecord = {
+      id: 'movie_99',
+      title: 'Interstellar',
+      mediaType: 'movie',
+      watchedAt: 3000,
+      autoMarked: true,
+    };
+
+    // Save individual
+    await saveWatchedEpisode(ep1);
+    expect(await isEpisodeWatched('bb_s1_e0')).toBe(true);
+    expect(await isEpisodeWatched('bb_s1_e1')).toBe(false);
+
+    // Save batch
+    await saveWatchedEpisodesBatch([ep2, movie]);
+    expect(await isEpisodeWatched('bb_s1_e1')).toBe(true);
+    expect(await isEpisodeWatched('movie_99')).toBe(true);
+
+    // Query all
+    const all = await getWatchedEpisodes();
+    expect(all.length).toBe(3);
+
+    // Query by series
+    const bbWatched = await getWatchedEpisodesBySeries('bb');
+    expect(bbWatched.length).toBe(2);
+    expect(bbWatched.map((e) => e.id)).toContain('bb_s1_e0');
+    expect(bbWatched.map((e) => e.id)).toContain('bb_s1_e1');
+
+    // Remove single
+    await removeWatchedEpisode('movie_99');
+    expect(await isEpisodeWatched('movie_99')).toBe(false);
+
+    // Remove batch
+    await removeWatchedEpisodesBatch(['bb_s1_e0', 'bb_s1_e1']);
+    expect(await isEpisodeWatched('bb_s1_e0')).toBe(false);
+    expect(await isEpisodeWatched('bb_s1_e1')).toBe(false);
+
+    // Clear all
+    await saveWatchedEpisode(ep1);
+    await clearWatchedEpisodes();
+    const afterClear = await getWatchedEpisodes();
+    expect(afterClear.length).toBe(0);
   });
 });

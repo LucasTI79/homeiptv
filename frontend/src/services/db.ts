@@ -56,13 +56,26 @@ export interface DownloadTask {
   fileName: string;
 }
 
+export interface WatchedEpisodeRecord {
+  id: string;             // "${seriesId}_s${season}_e${episodeIndex}" or "movie_${id}"
+  seriesId?: string;
+  seriesName?: string;
+  season?: string;
+  episodeIndex?: number;
+  title: string;
+  mediaType: 'series' | 'movie';
+  watchedAt: number;
+  autoMarked: boolean;
+}
+
 const DB_NAME = 'viniplay_offline_db';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const STORE_PROGRESS = 'vod_progress';
 const STORE_FAVORITES = 'vod_favorites';
 const STORE_FINGERPRINTS = 'series_audio_fingerprints';
 const STORE_SEGMENTS = 'content_segments';
 const STORE_DOWNLOAD_TASKS = 'download_tasks';
+const STORE_WATCHED_EPISODES = 'watched_episodes';
 const MIGRATION_FLAG_KEY = 'viniplay_idb_migrated_v1';
 
 let dbInstance: IDBDatabase | null = null;
@@ -116,6 +129,13 @@ export function openDb(): Promise<IDBDatabase> {
         dtStore.createIndex('by_status', 'status', { unique: false });
         dtStore.createIndex('by_seriesId', 'seriesId', { unique: false });
         dtStore.createIndex('by_createdAt', 'createdAt', { unique: false });
+      }
+
+      // 6. Store for Watched Episodes & Movies (Watched History)
+      if (!db.objectStoreNames.contains(STORE_WATCHED_EPISODES)) {
+        const watchedStore = db.createObjectStore(STORE_WATCHED_EPISODES, { keyPath: 'id' });
+        watchedStore.createIndex('by_seriesId', 'seriesId', { unique: false });
+        watchedStore.createIndex('by_watchedAt', 'watchedAt', { unique: false });
       }
     };
 
@@ -480,5 +500,105 @@ export async function clearDownloadTasks(): Promise<void> {
   } catch (err) {
     console.warn('[IndexedDB] clearDownloadTasks error:', err);
   }
+}
+
+export async function getWatchedEpisodes(): Promise<WatchedEpisodeRecord[]> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_WATCHED_EPISODES, 'readonly');
+    const store = tx.objectStore(STORE_WATCHED_EPISODES);
+    const request = store.getAll();
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => reject(request.error || new Error('Failed to get watched episodes'));
+  });
+}
+
+export async function getWatchedEpisodesBySeries(seriesId: string): Promise<WatchedEpisodeRecord[]> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_WATCHED_EPISODES, 'readonly');
+    const store = tx.objectStore(STORE_WATCHED_EPISODES);
+    const index = store.index('by_seriesId');
+    const request = index.getAll(seriesId);
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => reject(request.error || new Error('Failed to get watched episodes by series'));
+  });
+}
+
+export async function isEpisodeWatched(id: string): Promise<boolean> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_WATCHED_EPISODES, 'readonly');
+    const store = tx.objectStore(STORE_WATCHED_EPISODES);
+    const request = store.get(id);
+    request.onsuccess = () => resolve(!!request.result);
+    request.onerror = () => reject(request.error || new Error('Failed to check if episode is watched'));
+  });
+}
+
+export async function saveWatchedEpisode(record: WatchedEpisodeRecord): Promise<void> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_WATCHED_EPISODES, 'readwrite');
+    const store = tx.objectStore(STORE_WATCHED_EPISODES);
+    store.put(record);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error('Failed to save watched episode'));
+    tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
+  });
+}
+
+export async function saveWatchedEpisodesBatch(records: WatchedEpisodeRecord[]): Promise<void> {
+  if (records.length === 0) return;
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_WATCHED_EPISODES, 'readwrite');
+    const store = tx.objectStore(STORE_WATCHED_EPISODES);
+    for (const rec of records) {
+      store.put(rec);
+    }
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error('Failed to save watched episodes batch'));
+    tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
+  });
+}
+
+export async function removeWatchedEpisode(id: string): Promise<void> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_WATCHED_EPISODES, 'readwrite');
+    const store = tx.objectStore(STORE_WATCHED_EPISODES);
+    store.delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error('Failed to remove watched episode'));
+    tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
+  });
+}
+
+export async function removeWatchedEpisodesBatch(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_WATCHED_EPISODES, 'readwrite');
+    const store = tx.objectStore(STORE_WATCHED_EPISODES);
+    for (const id of ids) {
+      store.delete(id);
+    }
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error('Failed to remove watched episodes batch'));
+    tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
+  });
+}
+
+export async function clearWatchedEpisodes(): Promise<void> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_WATCHED_EPISODES, 'readwrite');
+    const store = tx.objectStore(STORE_WATCHED_EPISODES);
+    store.clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error('Failed to clear watched episodes'));
+    tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
+  });
 }
 

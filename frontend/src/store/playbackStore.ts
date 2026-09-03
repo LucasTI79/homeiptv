@@ -105,14 +105,63 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
   },
 
   saveProgress: (item) => {
-    // If progress is >= 95%, we consider it finished and remove
+    // If progress is >= 95%, we consider the current episode/movie finished
     const isFinished = item.duration > 0 && (item.currentTime / item.duration) >= 0.95;
     const updatedAt = Date.now();
+
+    // Check if this is a series and whether a subsequent episode exists
+    let nextSeriesEpisode = item.nextEpisode;
+    if (isFinished && item.type === 'series' && !nextSeriesEpisode && item.episodes && item.episodeIndex !== undefined) {
+      const nextIdx = item.episodeIndex + 1;
+      if (nextIdx < item.episodes.length) {
+        const nextEp = item.episodes[nextIdx];
+        nextSeriesEpisode = {
+          url: nextEp.url,
+          name: `${item.seriesName || item.title} - ${nextEp.name || `Ep ${nextIdx + 1}`}`,
+          season: item.season || '1',
+          episodeIndex: nextIdx,
+        };
+      }
+    }
     
     set((state) => {
       const nextProgress = { ...state.progress };
       if (isFinished) {
         delete nextProgress[item.id];
+
+        // If it's a series and there is a next episode, keep the series in Continue Watching!
+        if (item.type === 'series' && nextSeriesEpisode) {
+          const nextId = `${item.seriesId || 'series'}_s${nextSeriesEpisode.season}_e${nextSeriesEpisode.episodeIndex}`;
+          
+          let subsequentEp = undefined;
+          if (item.episodes && nextSeriesEpisode.episodeIndex + 1 < item.episodes.length) {
+            const subIdx = nextSeriesEpisode.episodeIndex + 1;
+            const sub = item.episodes[subIdx];
+            subsequentEp = {
+              url: sub.url,
+              name: `${item.seriesName || item.title} - ${sub.name || `Ep ${subIdx + 1}`}`,
+              season: nextSeriesEpisode.season,
+              episodeIndex: subIdx,
+            };
+          }
+
+          nextProgress[nextId] = {
+            id: nextId,
+            seriesId: item.seriesId,
+            seriesName: item.seriesName,
+            season: nextSeriesEpisode.season,
+            episodeIndex: nextSeriesEpisode.episodeIndex,
+            episodes: item.episodes,
+            nextEpisode: subsequentEp,
+            title: nextSeriesEpisode.name,
+            type: 'series',
+            url: nextSeriesEpisode.url,
+            logo: item.logo,
+            currentTime: 0,
+            duration: 0,
+            updatedAt,
+          };
+        }
       } else {
         nextProgress[item.id] = {
           ...item,
@@ -129,6 +178,40 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
 
     if (isFinished) {
       db.removeProgress(item.id);
+
+      // Persist the next episode in IndexedDB if available
+      if (item.type === 'series' && nextSeriesEpisode) {
+        const nextId = `${item.seriesId || 'series'}_s${nextSeriesEpisode.season}_e${nextSeriesEpisode.episodeIndex}`;
+        
+        let subsequentEp = undefined;
+        if (item.episodes && nextSeriesEpisode.episodeIndex + 1 < item.episodes.length) {
+          const subIdx = nextSeriesEpisode.episodeIndex + 1;
+          const sub = item.episodes[subIdx];
+          subsequentEp = {
+            url: sub.url,
+            name: `${item.seriesName || item.title} - ${sub.name || `Ep ${subIdx + 1}`}`,
+            season: nextSeriesEpisode.season,
+            episodeIndex: subIdx,
+          };
+        }
+
+        db.saveProgress({
+          id: nextId,
+          seriesId: item.seriesId,
+          seriesName: item.seriesName,
+          season: nextSeriesEpisode.season,
+          episodeIndex: nextSeriesEpisode.episodeIndex,
+          episodes: item.episodes,
+          nextEpisode: subsequentEp,
+          title: nextSeriesEpisode.name,
+          type: 'series',
+          url: nextSeriesEpisode.url,
+          logo: item.logo,
+          currentTime: 0,
+          duration: 0,
+          updatedAt,
+        });
+      }
     } else {
       db.saveProgress({
         ...item,

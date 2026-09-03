@@ -9,6 +9,26 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { useCast } from '../components/cast/CastProvider';
 import { usePlaybackStore } from '../store/playbackStore';
 import { FiCast, FiRotateCcw, FiRotateCw, FiPlay, FiX } from 'react-icons/fi';
+import { SkipIntroOverlay } from '../components/vod/SkipIntroOverlay';
+import { AudioFingerprintCollector } from '../services/videoIntelligence/audioFingerprinter';
+import { findIntroSegment } from '../services/videoIntelligence/audioMatcher';
+import { parseAndClusterMedia } from '../services/videoIntelligence/seriesClusterer';
+import { CreditsDetector, MAX_CREDITS_WINDOW_SECONDS } from '../services/videoIntelligence/creditsDetector';
+import {
+  getContentSegment,
+  saveContentSegment,
+  getSeriesFingerprints,
+  saveSeriesFingerprint
+} from '../services/db';
+
+import { VIDEO_INTELLIGENCE_CONFIG } from '../services/videoIntelligence/config';
+
+const {
+  minProgressRecordSeconds: MIN_PLAYBACK_PROGRESS_RECORD_SECONDS,
+  nextEpisodeCountdownSeconds: NEXT_EPISODE_COUNTDOWN_SECONDS,
+  nextEpisodeFallbackTriggerBeforeEndSeconds: NEXT_EPISODE_FALLBACK_TRIGGER_BEFORE_END_SECONDS,
+  minVideoDurationForNextEpisodeSeconds: MIN_VIDEO_DURATION_FOR_NEXT_EPISODE_SECONDS,
+} = VIDEO_INTELLIGENCE_CONFIG.playback;
 
 export function PlayerPage() {
   const navigate = useNavigate();
@@ -39,6 +59,16 @@ export function PlayerPage() {
   // Next Episode Countdown overlay state
   const [nextEpCountdown, setNextEpCountdown] = useState<number | null>(null);
   const [nextEpDismissed, setNextEpDismissed] = useState<boolean>(false);
+
+  // Skip Intro intelligence state
+  const [activeIntroSegment, setActiveIntroSegment] = useState<{ startSec: number; endSec: number } | null>(null);
+  const [introDismissed, setIntroDismissed] = useState<boolean>(false);
+  const audioCollectorRef = useRef<AudioFingerprintCollector | null>(null);
+  const hasMatchedIntroRef = useRef<boolean>(false);
+
+  // Credits & Next Episode intelligence state
+  const [activeCreditsSegment, setActiveCreditsSegment] = useState<{ startSec: number; endSec: number } | null>(null);
+  const creditsDetectorRef = useRef<CreditsDetector | null>(null);
 
   useEffect(() => {
     if (!selectedChannel || !config) return;
@@ -301,6 +331,25 @@ export function PlayerPage() {
       }
     }
 
+    const nextId = `${seriesContext?.seriesId || 'series'}_s${next.season}_e${next.episodeIndex}`;
+
+    // Immediately register the new episode in Continue Watching so it never disappears
+    saveProgress({
+      id: nextId,
+      seriesId: seriesContext?.seriesId,
+      seriesName: seriesContext?.seriesName,
+      season: next.season,
+      episodeIndex: next.episodeIndex,
+      episodes: seriesContext?.episodes,
+      nextEpisode: subsequentEpisode,
+      title: next.name,
+      type: 'series',
+      url: next.url,
+      logo: selectedChannel.logo,
+      currentTime: 0,
+      duration: 0,
+    });
+
     setNextEpCountdown(null);
     setNextEpDismissed(false);
     hasCheckedResumeRef.current = false;
@@ -308,7 +357,7 @@ export function PlayerPage() {
     setSelectedChannel({
       url: next.url,
       name: next.name,
-      id: `${seriesContext?.seriesId || 'series'}_s${next.season}_e${next.episodeIndex}`,
+      id: nextId,
       isVod: true,
       vodType: 'series',
       logo: selectedChannel.logo,
@@ -320,7 +369,138 @@ export function PlayerPage() {
       } : undefined,
       nextEpisode: subsequentEpisode,
     });
-  }, [selectedChannel, setSelectedChannel]);
+  }, [selectedChannel, setSelectedChannel, saveProgress]);
+
+  // Skip Intro handler
+  const handleSkipIntro = useCallback((targetSec: number) => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = targetSec;
+      setCurrentTime(targetSec);
+    }
+    setIntroDismissed(true);
+  }, []);
+
+  // Audio Fingerprinting & Intro/Credits Detection lifecycle
+  useEffect(() => {
+    if (!selectedChannel?.isVod) return;
+
+    const parsed = parseAndClusterMedia(selectedChannel.name || '', selectedChannel.url);
+    if (!parsed.seasonClusterId) return;
+
+    setActiveIntroSegment(null);
+    setActiveCreditsSegment(null);
+    setIntroDismissed(false);
+    hasMatchedIntroRef.current = false;
+
+    let isCancelled = false;
+
+    // 1. Check if we already have confirmed intro / credits segments in IndexedDB
+    getContentSegment(parsed.seasonClusterId, 'INTRO').then((seg) => {
+      if (isCancelled) return;
+      if (seg && seg.confidence >= 0.8) {
+        setActiveIntroSegment({ startSec: seg.startSec, endSec: seg.endSec });
+        hasMatchedIntroRef.current = true;
+      }
+    });
+
+    getContentSegment(parsed.seasonClusterId, 'CREDITS').then((seg) => {
+      if (isCancelled) return;
+      const dur = videoRef.current?.duration;
+      // Sanity check: discard any stored segment that is outside the genuine credits window
+      if (seg && seg.confidence >= 0.8) {
+        if (!dur || isNaN(dur) || seg.startSec >= dur - MAX_CREDITS_WINDOW_SECONDS) {
+          setActiveCreditsSegment({ startSec: seg.startSec, endSec: seg.endSec });
+        }
+      }
+    });
+
+    // 2. Setup Audio Collector (runs silently in the first 180s)
+    const collector = new AudioFingerprintCollector();
+    audioCollectorRef.current = collector;
+
+    // 3. Setup Credits Detector (runs in background in the final minutes)
+    const creditsDetector = new CreditsDetector();
+    creditsDetectorRef.current = creditsDetector;
+
+    let lastCheckSample = 0;
+    const onSample = (sampleCount: number) => {
+      if (hasMatchedIntroRef.current || isCancelled) return;
+
+      // Evaluate every 40 samples (10 seconds) once we have at least 60 samples (15s)
+      if (sampleCount >= 60 && sampleCount - lastCheckSample >= 40) {
+        lastCheckSample = sampleCount;
+        getSeriesFingerprints(parsed.seasonClusterId).then((prevList) => {
+          if (hasMatchedIntroRef.current || isCancelled) return;
+          const otherEp = prevList.find((f) => f.episode !== parsed.episode && f.fingerprints.length >= 60);
+          if (otherEp) {
+            const match = findIntroSegment(otherEp.fingerprints, collector.fingerprints);
+            if (match.found && match.confidence >= 0.85) {
+              hasMatchedIntroRef.current = true;
+              setActiveIntroSegment({ startSec: match.startSec, endSec: match.endSec });
+              saveContentSegment({
+                id: `${parsed.seasonClusterId}_INTRO`,
+                seasonClusterId: parsed.seasonClusterId,
+                type: 'INTRO',
+                startSec: match.startSec,
+                endSec: match.endSec,
+                confidence: match.confidence,
+                source: 'audio_match',
+                updatedAt: Date.now(),
+              });
+            }
+          }
+        });
+      }
+    };
+
+    const startTimer = setTimeout(() => {
+      if (videoRef.current && !isCancelled) {
+        collector.start(videoRef.current, 180, onSample);
+        creditsDetector.start(videoRef.current, (creditsStartSec) => {
+          if (isCancelled) return;
+          const dur = videoRef.current?.duration || 0;
+          // Guard: Only accept credits detected within the genuine credits window
+          if (dur > 0 && creditsStartSec < dur - MAX_CREDITS_WINDOW_SECONDS) return;
+
+          const creditsEnd = dur || (creditsStartSec + 60);
+          setActiveCreditsSegment({ startSec: creditsStartSec, endSec: creditsEnd });
+          saveContentSegment({
+            id: `${parsed.seasonClusterId}_CREDITS`,
+            seasonClusterId: parsed.seasonClusterId,
+            type: 'CREDITS',
+            startSec: creditsStartSec,
+            endSec: creditsEnd,
+            confidence: 0.9,
+            source: 'audio_match',
+            updatedAt: Date.now(),
+          });
+        });
+      }
+    }, 1200);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(startTimer);
+      creditsDetector.stop();
+      if (creditsDetectorRef.current === creditsDetector) {
+        creditsDetectorRef.current = null;
+      }
+      const finalFps = collector.stop();
+      if (finalFps.length >= 40) {
+        saveSeriesFingerprint({
+          id: `${parsed.seasonClusterId}_ep${parsed.episode}`,
+          seasonClusterId: parsed.seasonClusterId,
+          episode: parsed.episode,
+          fingerprints: finalFps,
+          createdAt: Date.now(),
+        });
+      }
+      collector.destroy();
+      if (audioCollectorRef.current === collector) {
+        audioCollectorRef.current = null;
+      }
+    };
+  }, [selectedChannel?.url, selectedChannel?.name, selectedChannel?.isVod]);
 
   // Periodic progress saving & next episode trigger
   useEffect(() => {
@@ -334,7 +514,7 @@ export function PlayerPage() {
       const dur = v.duration;
       const itemId = getProgressItemId();
 
-      if (curr > 5) {
+      if (curr > MIN_PLAYBACK_PROGRESS_RECORD_SECONDS) {
         saveProgress({
           id: itemId,
           seriesId: selectedChannel.seriesContext?.seriesId,
@@ -352,18 +532,24 @@ export function PlayerPage() {
         });
       }
 
-      // Check for Next Episode trigger: within 25 seconds of end or if ended
+      // Check for Next Episode trigger:
+      // Priority 1: When detected credits segment begins (or during credits)
+      // Priority 2: Fallback to NEXT_EPISODE_FALLBACK_TRIGGER_BEFORE_END_SECONDS before end
       if (selectedChannel.nextEpisode && !nextEpDismissed) {
-        if (curr >= dur - 25 && dur > 30) {
+        const creditsStartThreshold = activeCreditsSegment
+          ? activeCreditsSegment.startSec
+          : dur - NEXT_EPISODE_FALLBACK_TRIGGER_BEFORE_END_SECONDS;
+
+        if (curr >= creditsStartThreshold && dur > MIN_VIDEO_DURATION_FOR_NEXT_EPISODE_SECONDS) {
           if (nextEpCountdown === null) {
-            setNextEpCountdown(5); // Start 5 second countdown
+            setNextEpCountdown(NEXT_EPISODE_COUNTDOWN_SECONDS);
           }
         }
       }
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [selectedChannel, getProgressItemId, saveProgress, nextEpDismissed, nextEpCountdown]);
+  }, [selectedChannel, getProgressItemId, saveProgress, nextEpDismissed, nextEpCountdown, activeCreditsSegment]);
 
   // Next episode countdown ticker
   useEffect(() => {
@@ -506,6 +692,7 @@ export function PlayerPage() {
           <video
             id="video-player"
             ref={videoRef}
+            crossOrigin="anonymous"
             className="w-full h-auto aspect-video object-contain bg-black"
             onPlay={() => setIsPlaying(true)}
             onPause={() => setIsPlaying(false)}
@@ -548,6 +735,15 @@ export function PlayerPage() {
               </button>
             </div>
           </div>
+        )}
+
+        {/* Skip Intro Floating Overlay */}
+        {activeIntroSegment && !introDismissed && currentTime >= activeIntroSegment.startSec && currentTime < activeIntroSegment.endSec && (
+          <SkipIntroOverlay
+            isVisible={true}
+            introEndSec={activeIntroSegment.endSec}
+            onSkip={handleSkipIntro}
+          />
         )}
 
         {/* Next Episode Countdown Overlay (Modern Netflix / Streaming style) */}

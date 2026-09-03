@@ -105,6 +105,49 @@ describe('Offline DB (IndexedDB)', () => {
     expect(favs).toContain('vod_fav_2');
   });
 
+  it('saves and retrieves audio fingerprints and content segments', async () => {
+    const { saveSeriesFingerprint, getSeriesFingerprints, saveContentSegment, getContentSegment } = await import('./db');
+    
+    // Test Fingerprints
+    await saveSeriesFingerprint({
+      id: 'the-boys-s01_ep1',
+      seasonClusterId: 'the-boys-s01',
+      episode: 1,
+      fingerprints: [100, 200, 300],
+      createdAt: Date.now()
+    });
+
+    await saveSeriesFingerprint({
+      id: 'the-boys-s01_ep2',
+      seasonClusterId: 'the-boys-s01',
+      episode: 2,
+      fingerprints: [101, 201, 301],
+      createdAt: Date.now()
+    });
+
+    const fps = await getSeriesFingerprints('the-boys-s01');
+    expect(fps.length).toBe(2);
+    expect(fps.map(f => f.episode).sort()).toEqual([1, 2]);
+
+    // Test Content Segments
+    await saveContentSegment({
+      id: 'the-boys-s01_INTRO',
+      seasonClusterId: 'the-boys-s01',
+      type: 'INTRO',
+      startSec: 42,
+      endSec: 92,
+      confidence: 0.96,
+      source: 'audio_match',
+      updatedAt: Date.now()
+    });
+
+    const segment = await getContentSegment('the-boys-s01', 'INTRO');
+    expect(segment).not.toBeNull();
+    expect(segment?.startSec).toBe(42);
+    expect(segment?.endSec).toBe(92);
+    expect(segment?.confidence).toBe(0.96);
+  });
+
   it('migrates existing data from localStorage to indexedDB', async () => {
     localStorage.setItem(
       'viniplay_vod_progress',

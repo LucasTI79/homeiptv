@@ -74,6 +74,49 @@ describe('usePlaybackStore with IndexedDB integration', () => {
     expect(dbList.some((i) => i.id === 'item_finished')).toBe(false);
   });
 
+  it('advances to next episode in series when current episode finishes (>= 95%)', async () => {
+    await usePlaybackStore.getState().init();
+
+    usePlaybackStore.getState().saveProgress({
+      id: 'series_1_s1_e0',
+      seriesId: 'series_1',
+      seriesName: 'Breaking Bad',
+      season: '1',
+      episodeIndex: 0,
+      title: 'Breaking Bad - Ep 1',
+      type: 'series',
+      url: 'http://test.com/s1e1.mp4',
+      currentTime: 980,
+      duration: 1000,
+      nextEpisode: {
+        url: 'http://test.com/s1e2.mp4',
+        name: 'Breaking Bad - Ep 2',
+        season: '1',
+        episodeIndex: 1,
+      },
+      episodes: [
+        { name: 'Ep 1', url: 'http://test.com/s1e1.mp4' },
+        { name: 'Ep 2', url: 'http://test.com/s1e2.mp4' },
+        { name: 'Ep 3', url: 'http://test.com/s1e3.mp4' },
+      ],
+    });
+
+    // The finished episode is removed
+    expect(usePlaybackStore.getState().progress['series_1_s1_e0']).toBeUndefined();
+
+    // The next episode is automatically queued in progress with currentTime 0
+    const nextItem = usePlaybackStore.getState().progress['series_1_s1_e1'];
+    expect(nextItem).toBeDefined();
+    expect(nextItem?.title).toBe('Breaking Bad - Ep 2');
+    expect(nextItem?.currentTime).toBe(0);
+    expect(nextItem?.episodeIndex).toBe(1);
+
+    // Persisted in IndexedDB as well
+    const dbList = await db.getProgressList();
+    expect(dbList.some((i) => i.id === 'series_1_s1_e1')).toBe(true);
+    expect(dbList.some((i) => i.id === 'series_1_s1_e0')).toBe(false);
+  });
+
   it('toggles favorites and updates both in-memory store and indexedDB', async () => {
     await usePlaybackStore.getState().init();
 

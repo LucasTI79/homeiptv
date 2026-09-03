@@ -37,11 +37,23 @@ export function VodPage() {
   // Selected series for episode modal
   const [selectedSeries, setSelectedSeries] = useState<VodItem | null>(null);
 
-  // Continue watching sorted list (most recently updated first)
+  // Continue watching sorted list (most recently updated first, deduplicated by series)
   const continueWatchingItems = useMemo(() => {
-    return Object.values(progress)
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-      .slice(0, 12);
+    const sorted = Object.values(progress).sort((a, b) => b.updatedAt - a.updatedAt);
+    const seenSeries = new Set<string>();
+    const deduplicated: VodProgressItem[] = [];
+
+    for (const item of sorted) {
+      if (item.type === 'series' && item.seriesId) {
+        if (seenSeries.has(item.seriesId)) {
+          continue;
+        }
+        seenSeries.add(item.seriesId);
+      }
+      deduplicated.push(item);
+    }
+
+    return deduplicated.slice(0, 12);
   }, [progress]);
 
   useEffect(() => {

@@ -15,10 +15,31 @@ export interface OfflineProgressItem {
   updatedAt: number;     // timestamp in ms
 }
 
+export interface SeriesAudioFingerprint {
+  id: string; // `${seasonClusterId}_ep${episode}`
+  seasonClusterId: string;
+  episode: number;
+  fingerprints: number[];
+  createdAt: number;
+}
+
+export interface ContentSegment {
+  id: string; // `${seasonClusterId}_${type}`
+  seasonClusterId: string;
+  type: 'INTRO' | 'CREDITS';
+  startSec: number;
+  endSec: number;
+  confidence: number;
+  source: 'audio_match' | 'user_seek' | 'manual';
+  updatedAt: number;
+}
+
 const DB_NAME = 'viniplay_offline_db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_PROGRESS = 'vod_progress';
 const STORE_FAVORITES = 'vod_favorites';
+const STORE_FINGERPRINTS = 'series_audio_fingerprints';
+const STORE_SEGMENTS = 'content_segments';
 const MIGRATION_FLAG_KEY = 'viniplay_idb_migrated_v1';
 
 let dbInstance: IDBDatabase | null = null;
@@ -52,6 +73,18 @@ export function openDb(): Promise<IDBDatabase> {
       // 2. Store for VOD Favorites
       if (!db.objectStoreNames.contains(STORE_FAVORITES)) {
         db.createObjectStore(STORE_FAVORITES, { keyPath: 'id' });
+      }
+
+      // 3. Store for Series Audio Fingerprints
+      if (!db.objectStoreNames.contains(STORE_FINGERPRINTS)) {
+        const fpStore = db.createObjectStore(STORE_FINGERPRINTS, { keyPath: 'id' });
+        fpStore.createIndex('by_seasonClusterId', 'seasonClusterId', { unique: false });
+      }
+
+      // 4. Store for Detected Content Segments (Intros, Credits)
+      if (!db.objectStoreNames.contains(STORE_SEGMENTS)) {
+        const segStore = db.createObjectStore(STORE_SEGMENTS, { keyPath: 'id' });
+        segStore.createIndex('by_seasonClusterId', 'seasonClusterId', { unique: false });
       }
     };
 
@@ -251,3 +284,75 @@ export async function migrateFromLocalStorage(): Promise<void> {
     console.warn('[IndexedDB] Migration from localStorage error:', err);
   }
 }
+
+export async function saveSeriesFingerprint(record: SeriesAudioFingerprint): Promise<void> {
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_FINGERPRINTS, 'readwrite');
+      const store = tx.objectStore(STORE_FINGERPRINTS);
+      const request = store.put(record);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error || new Error('Failed to save audio fingerprint'));
+    });
+  } catch (err) {
+    console.warn('[IndexedDB] saveSeriesFingerprint error:', err);
+  }
+}
+
+export async function getSeriesFingerprints(seasonClusterId: string): Promise<SeriesAudioFingerprint[]> {
+  try {
+    const db = await openDb();
+    return await new Promise<SeriesAudioFingerprint[]>((resolve, reject) => {
+      const tx = db.transaction(STORE_FINGERPRINTS, 'readonly');
+      const store = tx.objectStore(STORE_FINGERPRINTS);
+      const index = store.index('by_seasonClusterId');
+      const request = index.getAll(seasonClusterId);
+
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => reject(request.error || new Error('Failed to get series fingerprints'));
+    });
+  } catch (err) {
+    console.warn('[IndexedDB] getSeriesFingerprints error:', err);
+    return [];
+  }
+}
+
+export async function saveContentSegment(segment: ContentSegment): Promise<void> {
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_SEGMENTS, 'readwrite');
+      const store = tx.objectStore(STORE_SEGMENTS);
+      const request = store.put(segment);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error || new Error('Failed to save content segment'));
+    });
+  } catch (err) {
+    console.warn('[IndexedDB] saveContentSegment error:', err);
+  }
+}
+
+export async function getContentSegment(
+  seasonClusterId: string,
+  type: 'INTRO' | 'CREDITS' = 'INTRO'
+): Promise<ContentSegment | null> {
+  try {
+    const db = await openDb();
+    return await new Promise<ContentSegment | null>((resolve, reject) => {
+      const tx = db.transaction(STORE_SEGMENTS, 'readonly');
+      const store = tx.objectStore(STORE_SEGMENTS);
+      const id = `${seasonClusterId}_${type}`;
+      const request = store.get(id);
+
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error || new Error('Failed to get content segment'));
+    });
+  } catch (err) {
+    console.warn('[IndexedDB] getContentSegment error:', err);
+    return null;
+  }
+}
+

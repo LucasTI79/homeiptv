@@ -6,10 +6,9 @@ type LayoutItem = { i: string; x: number; y: number; w: number; h: number };
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 import { MultiviewPlayer } from './MultiviewPlayer';
-import { FiPlus, FiLayout } from 'react-icons/fi';
+import { FiPlus, FiLayout, FiTrash2 } from 'react-icons/fi';
 import { toast } from 'react-hot-toast';
 import { GuideTour } from '../../components/ui/GuideTour';
-
 
 export interface MultiviewChannel {
   id: string;
@@ -24,14 +23,79 @@ interface PlayerWidget {
 }
 
 const MAX_PLAYERS = 9;
+const STORAGE_KEY_MULTIVIEW_WIDGETS = 'viniplay_multiview_widgets';
+const STORAGE_KEY_MULTIVIEW_LAYOUT = 'viniplay_multiview_layout';
+const STORAGE_KEY_MULTIVIEW_ACTIVE = 'viniplay_multiview_active';
+
+function loadStoredWidgets(): PlayerWidget[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_MULTIVIEW_WIDGETS);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadStoredLayout(): Layout {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_MULTIVIEW_LAYOUT);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadStoredActivePlayerId(): string | null {
+  try {
+    return localStorage.getItem(STORAGE_KEY_MULTIVIEW_ACTIVE) || null;
+  } catch {
+    return null;
+  }
+}
 
 export const MultiviewPage: React.FC = () => {
-  const [widgets, setWidgets] = useState<PlayerWidget[]>([]);
-  const [layout, setLayout] = useState<Layout>([]);
-  const [activePlayerId, setActivePlayerId] = useState<string | null>(null);
+  const [widgets, setWidgets] = useState<PlayerWidget[]>(loadStoredWidgets);
+  const [layout, setLayout] = useState<Layout>(loadStoredLayout);
+  const [activePlayerId, setActivePlayerId] = useState<string | null>(loadStoredActivePlayerId);
   
   const [isSelectorOpen, setIsSelectorOpen] = useState(false);
   const [selectingForWidget, setSelectingForWidget] = useState<string | null>(null);
+
+  // Synchronize widgets to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_MULTIVIEW_WIDGETS, JSON.stringify(widgets));
+    } catch (e) {
+      console.warn('Failed to save multiview widgets to localStorage', e);
+    }
+  }, [widgets]);
+
+  // Synchronize layout to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_MULTIVIEW_LAYOUT, JSON.stringify(layout));
+    } catch (e) {
+      console.warn('Failed to save multiview layout to localStorage', e);
+    }
+  }, [layout]);
+
+  // Synchronize activePlayerId to localStorage
+  useEffect(() => {
+    try {
+      if (activePlayerId) {
+        localStorage.setItem(STORAGE_KEY_MULTIVIEW_ACTIVE, activePlayerId);
+      } else {
+        localStorage.removeItem(STORAGE_KEY_MULTIVIEW_ACTIVE);
+      }
+    } catch {}
+  }, [activePlayerId]);
+
+  // Ensure activePlayerId points to a valid widget
+  useEffect(() => {
+    if (activePlayerId && !widgets.some((w) => w.id === activePlayerId)) {
+      setActivePlayerId(widgets[0]?.id || null);
+    }
+  }, [widgets, activePlayerId]);
 
   const handleLayoutChange = (newLayout: Layout) => {
     setLayout(newLayout);
@@ -52,6 +116,19 @@ export const MultiviewPage: React.FC = () => {
     setWidgets(widgets.filter((w) => w.id !== id));
     setLayout(layout.filter((l) => l.i !== id));
     if (activePlayerId === id) setActivePlayerId(null);
+  };
+
+  const clearAllPlayers = () => {
+    if (widgets.length === 0) return;
+    setWidgets([]);
+    setLayout([]);
+    setActivePlayerId(null);
+    try {
+      localStorage.removeItem(STORAGE_KEY_MULTIVIEW_WIDGETS);
+      localStorage.removeItem(STORAGE_KEY_MULTIVIEW_LAYOUT);
+      localStorage.removeItem(STORAGE_KEY_MULTIVIEW_ACTIVE);
+    } catch {}
+    toast.success('Multiview grid cleared');
   };
 
   const selectChannelForWidget = (id: string) => {
@@ -171,10 +248,19 @@ export const MultiviewPage: React.FC = () => {
           </button>
           <button 
             onClick={addPlayer}
-            className="add-player-btn flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded transition-colors text-sm font-medium ml-4"
+            className="add-player-btn flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded transition-colors text-sm font-medium ml-4 cursor-pointer"
           >
             <FiPlus /> Add Player
           </button>
+          {widgets.length > 0 && (
+            <button
+              onClick={clearAllPlayers}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-950/60 hover:bg-red-900/80 border border-red-800/60 text-red-300 rounded transition-colors text-sm font-medium cursor-pointer"
+              title="Clear all players"
+            >
+              <FiTrash2 className="w-3.5 h-3.5" /> Clear All
+            </button>
+          )}
         </div>
       </div>
 

@@ -1,3 +1,4 @@
+import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import express from 'express';
@@ -12,6 +13,9 @@ import { initializeLogSystem } from './services/logSystem';
 import { initializeVapid } from './services/vapid';
 import { checkAndSendNotifications } from './services/notificationChecker';
 import { detectHardwareAcceleration } from './services/hardwareDetection';
+import { MemoryRemoteSessionHub } from './services/remote/MemoryRemoteSessionHub';
+import { setupRemoteWebSocketServer } from './services/remote/remoteWsServer';
+import { createRemoteRouter } from './routes/remote';
 import { healthRouter } from './routes/health';
 import { authRouter } from './routes/auth';
 import { usersRouter } from './routes/users';
@@ -55,7 +59,7 @@ app.use(
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["*", "data:", "blob:"], // Allow images from any source and data URIs for M3U logos
         mediaSrc: ["*", "'self'", "blob:", "data:"], // Allow media streams and local proxies
-        connectSrc: ["'self'", "https://google.com"],
+        connectSrc: ["'self'", "https://google.com", "ws:", "wss:"],
         frameSrc: ["'none'"],
       },
     },
@@ -116,6 +120,9 @@ app.use('/api', miscRouter);
 app.use('/api', notificationsRouter);
 app.use('/api', diagnosticsRouter);
 
+const remoteHub = new MemoryRemoteSessionHub();
+app.use('/api/remote', createRemoteRouter(remoteHub));
+
 // server.js:5241-5247 -- SPA fallback, must be registered last.
 app.get('*', (req, res) => {
   const filePath = path.join(PUBLIC_DIR, req.path);
@@ -134,6 +141,9 @@ detectHardwareAcceleration().then(() => {
   console.log('[HW] Hardware acceleration detection complete.');
 });
 
-app.listen(env.port, () => {
+const server = http.createServer(app);
+setupRemoteWebSocketServer(server, remoteHub);
+
+server.listen(env.port, () => {
   console.log(`[viniplay-backend] listening on port ${env.port} (db client: ${env.dbClient})`);
 });

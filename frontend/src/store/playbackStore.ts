@@ -7,6 +7,8 @@ export interface VodProgressItem {
   seriesName?: string;
   season?: string;
   episodeIndex?: number;
+  episodes?: { name: string; url: string }[];
+  nextEpisode?: { url: string; name: string; season: string; episodeIndex: number };
   title: string;
   type: 'movie' | 'series';
   url: string;

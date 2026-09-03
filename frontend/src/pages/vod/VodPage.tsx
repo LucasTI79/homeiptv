@@ -4,15 +4,22 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useVodLibrary, useRefreshVod, type VodItem, type SeriesDetails, type SeriesEpisode } from '../../api/vod';
 import { useUiStore } from '../../store/uiStore';
 import { usePlaybackStore, type VodProgressItem } from '../../store/playbackStore';
+import { useDownloadStore } from '../../store/downloadStore';
 import { proxiedLogoUrl } from '../../components/guide/ChannelRow';
 import { GuideTour } from '../../components/ui/GuideTour';
 import { VodSkeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { SeriesModal, type PlayEpisodeOptions } from '../../components/vod/SeriesModal';
-import { FiPlay, FiX, FiHeart, FiClock } from 'react-icons/fi';
+import { FiPlay, FiX, FiHeart, FiClock, FiDownload, FiCheckCircle, FiLoader } from 'react-icons/fi';
 import { FaHeart } from 'react-icons/fa';
 
-const ITEMS_PER_PAGE = 48;
+import { PLAYBACK_CONFIG } from '../../constants';
+
+const {
+  itemsPerPage: ITEMS_PER_PAGE,
+  maxContinueWatchingItems: MAX_CONTINUE_WATCHING_ITEMS,
+  searchDebounceMs: SEARCH_DEBOUNCE_MS,
+} = PLAYBACK_CONFIG;
 
 export function VodPage() {
   const navigate = useNavigate();
@@ -27,12 +34,20 @@ export function VodPage() {
   const favorites = usePlaybackStore((s) => s.favorites);
   const toggleFavorite = usePlaybackStore((s) => s.toggleFavorite);
   const isFavorite = usePlaybackStore((s) => s.isFavorite);
+  const isDownloaded = useDownloadStore((s) => s.isDownloaded);
+  const isDownloadingOrQueued = useDownloadStore((s) => s.isDownloadingOrQueued);
+  const enqueueMovie = useDownloadStore((s) => s.enqueueMovie);
+  const initDownloads = useDownloadStore((s) => s.initDownloads);
+
+  useEffect(() => {
+    initDownloads();
+  }, [initDownloads]);
 
   const [filterType, setFilterType] = useState<'all' | 'movie' | 'series' | 'favorites'>('all');
   const [filterGroup, setFilterGroup] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [displayCount, setDisplayCount] = useState(ITEMS_PER_PAGE);
+  const [displayCount, setDisplayCount] = useState<number>(ITEMS_PER_PAGE);
 
   // Selected series for episode modal
   const [selectedSeries, setSelectedSeries] = useState<VodItem | null>(null);
@@ -53,14 +68,14 @@ export function VodPage() {
       deduplicated.push(item);
     }
 
-    return deduplicated.slice(0, 12);
+    return deduplicated.slice(0, MAX_CONTINUE_WATCHING_ITEMS);
   }, [progress]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedQuery(searchQuery);
       setDisplayCount(ITEMS_PER_PAGE);
-    }, 200);
+    }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
@@ -439,7 +454,7 @@ export function VodPage() {
                         e.stopPropagation();
                         toggleFavorite(item.id);
                       }}
-                      className={`absolute top-2 right-2 p-1.5 rounded-lg backdrop-blur-xs transition ${
+                      className={`absolute top-2 right-2 p-1.5 rounded-lg backdrop-blur-xs transition z-10 ${
                         itemFav
                           ? 'bg-black/60 text-rose-500 hover:bg-black/80'
                           : 'bg-black/50 text-gray-400 hover:text-white hover:bg-black/75 opacity-0 group-hover:opacity-100'
@@ -448,6 +463,47 @@ export function VodPage() {
                     >
                       {itemFav ? <FaHeart className="w-3.5 h-3.5" /> : <FiHeart className="w-3.5 h-3.5" />}
                     </button>
+
+                    {/* Movie Download Button */}
+                    {item.type === 'movie' && item.url && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const movieId = `movie_${item.id}`;
+                          if (!isDownloaded(movieId) && !isDownloadingOrQueued(movieId)) {
+                            enqueueMovie({
+                              id: item.id,
+                              title: item.name,
+                              url: item.url!,
+                              logo: item.logo,
+                            });
+                          }
+                        }}
+                        className={`absolute bottom-2 right-2 p-1.5 rounded-lg backdrop-blur-xs transition z-10 ${
+                          isDownloaded(`movie_${item.id}`)
+                            ? 'bg-emerald-600/90 text-white shadow'
+                            : isDownloadingOrQueued(`movie_${item.id}`)
+                            ? 'bg-blue-600/90 text-white animate-pulse'
+                            : 'bg-black/60 text-gray-300 hover:text-white hover:bg-black/80 opacity-0 group-hover:opacity-100'
+                        }`}
+                        title={
+                          isDownloaded(`movie_${item.id}`)
+                            ? 'Filme baixado para assistir offline'
+                            : isDownloadingOrQueued(`movie_${item.id}`)
+                            ? 'Download em andamento...'
+                            : 'Baixar filme para assistir offline'
+                        }
+                      >
+                        {isDownloaded(`movie_${item.id}`) ? (
+                          <FiCheckCircle className="w-3.5 h-3.5" />
+                        ) : isDownloadingOrQueued(`movie_${item.id}`) ? (
+                          <FiLoader className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <FiDownload className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    )}
 
                     <div className="absolute inset-0 bg-blue-600/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
                       <span className="w-12 h-12 rounded-full bg-blue-600 text-white flex items-center justify-center text-xl shadow-xl">▶</span>

@@ -32,7 +32,7 @@ describe('useDownloadStore', () => {
       tx.oncomplete = resolve;
     });
 
-    global.fetch = vi.fn().mockImplementation(() =>
+    globalThis.fetch = vi.fn().mockImplementation(() =>
       Promise.resolve(
         new Response(
           new ReadableStream({

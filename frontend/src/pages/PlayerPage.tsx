@@ -109,15 +109,18 @@ export function PlayerPage() {
     let localBlobUrl: string | null = null;
 
     async function initMediaPlayback() {
+      const channel = selectedChannel;
+      if (!channel) return;
+
       // 1. Check if media was downloaded to local OPFS
       if (isVod && videoRef.current) {
-        let fileName = selectedChannel.offlineFileName;
+        let fileName = channel.offlineFileName;
         if (!fileName) {
           const candidateIds = [
-            selectedChannel.id,
-            `movie_${selectedChannel.id}`,
-            selectedChannel.seriesContext
-              ? `${selectedChannel.seriesContext.seriesId}_s${selectedChannel.seriesContext.season}_e${selectedChannel.seriesContext.episodeIndex}`
+            channel.id,
+            `movie_${channel.id}`,
+            channel.seriesContext
+              ? `${channel.seriesContext.seriesId}_s${channel.seriesContext.season}_e${channel.seriesContext.episodeIndex}`
               : null,
           ].filter(Boolean) as string[];
 
@@ -199,17 +202,19 @@ export function PlayerPage() {
       console.warn('[PlayerPage] Playback initialization error:', err);
     });
 
+    const videoEl = videoRef.current;
+
     return () => {
       isCancelled = true;
       if (localBlobUrl) {
         URL.revokeObjectURL(localBlobUrl);
         localBlobUrl = null;
       }
-      if (videoRef.current) {
+      if (videoEl) {
         try {
-          videoRef.current.pause();
-          videoRef.current.removeAttribute('src');
-          videoRef.current.load();
+          videoEl.pause();
+          videoEl.removeAttribute('src');
+          videoEl.load();
         } catch {
           // ignore
         }

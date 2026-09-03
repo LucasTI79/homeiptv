@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { openDb, getDownloadTasks, clearDownloadTasks } from './db';
+import { getDownloadTasks, clearDownloadTasks } from './db';
 import { DownloadManager } from './downloadManager';
 
 // Mock opfsStorage
@@ -32,7 +32,7 @@ describe('DownloadManager', () => {
     await clearDownloadTasks();
 
     // Mock fetch to simulate streaming chunks
-    global.fetch = vi.fn().mockImplementation(() =>
+    globalThis.fetch = vi.fn().mockImplementation(() =>
       Promise.resolve(
         new Response(
           new ReadableStream({

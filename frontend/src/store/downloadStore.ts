@@ -31,7 +31,7 @@ export interface DownloadStoreState {
     series: { id: string; name: string; logo?: string },
     season: string,
     episodes: { name: string; url: string }[]
-  ): Promise<DownloadTask[]>;
+  ) => Promise<DownloadTask[]>;
   pauseDownload: (id: string) => Promise<void>;
   resumeDownload: (id: string) => Promise<void>;
   cancelDownload: (id: string) => Promise<void>;

@@ -484,6 +484,49 @@ export function PlayerPage() {
           setActiveIntroSegment(null);
         }
       } else if (msg.type === 'COMMAND_DPAD') {
+        const { key } = msg.payload;
+
+        if (key === 'left') {
+          handleSeek(-10);
+        } else if (key === 'right') {
+          handleSeek(30);
+        } else if (key === 'up') {
+          if (isCasting) {
+            setCastVolume(Math.min(1, castVolume + 0.05));
+          } else {
+            setVolume((prev) => Math.min(1, prev + 0.05));
+          }
+        } else if (key === 'down') {
+          if (isCasting) {
+            setCastVolume(Math.max(0, castVolume - 0.05));
+          } else {
+            setVolume((prev) => Math.max(0, prev - 0.05));
+          }
+        } else if (key === 'select') {
+          if (activeIntroSegment) {
+            if (isCasting) {
+              seekMedia(activeIntroSegment.endSec - currentTime);
+            } else if (videoRef.current) {
+              videoRef.current.currentTime = activeIntroSegment.endSec;
+              setCurrentTime(activeIntroSegment.endSec);
+            }
+            setActiveIntroSegment(null);
+          } else {
+            togglePlay();
+          }
+        } else if (key === 'back') {
+          if (document.fullscreenElement) {
+            document.exitFullscreen().catch(() => {});
+          } else {
+            navigate(-1);
+          }
+        } else if (key === 'menu') {
+          const controls = document.querySelector('.group-hover\\:opacity-100');
+          if (controls) {
+            controls.classList.toggle('opacity-100');
+          }
+        }
+
         const keyMap: Record<string, string> = {
           up: 'ArrowUp',
           down: 'ArrowDown',
@@ -493,15 +536,28 @@ export function PlayerPage() {
           back: 'Escape',
           menu: 'ContextMenu',
         };
-        const key = keyMap[msg.payload.key];
-        if (key) {
-          window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+        const mappedKey = keyMap[key];
+        if (mappedKey) {
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: mappedKey, bubbles: true }));
         }
       }
     });
 
     return () => unsub();
-  }, [togglePlay, handleSeek, isCasting, currentTime, seekMedia, activeIntroSegment, toggleMute]);
+  }, [
+    togglePlay,
+    handleSeek,
+    isCasting,
+    currentTime,
+    seekMedia,
+    seekToTime,
+    castVolume,
+    setCastVolume,
+    setVolume,
+    activeIntroSegment,
+    toggleMute,
+    navigate,
+  ]);
 
   // Helper to determine item ID in progress store
   const getProgressItemId = useCallback(() => {

@@ -94,49 +94,59 @@ export const RemoteDpadView: React.FC = () => {
 
       {/* D-Pad Circular Controller */}
       <div className="relative w-64 h-64 bg-neutral-800/60 border border-neutral-700/60 rounded-full flex items-center justify-center shadow-2xl p-2 mb-8">
-        {/* Up */}
+        {/* Up - Vol + */}
         <button
           onClick={() => handleDpadPress('up')}
-          className="absolute top-2 left-1/2 -translate-x-1/2 w-20 h-16 flex items-center justify-center text-neutral-300 hover:text-white active:scale-90 transition-transform"
-          aria-label="Cima"
+          className="absolute top-2 left-1/2 -translate-x-1/2 w-20 h-16 flex flex-col items-center justify-center text-neutral-300 hover:text-white active:scale-90 transition-transform"
+          aria-label="Aumentar Volume (Cima)"
+          title="Aumentar Volume"
         >
-          <FiChevronUp className="w-10 h-10" />
+          <FiChevronUp className="w-7 h-7" />
+          <span className="text-[9px] font-bold uppercase tracking-wider text-neutral-400 -mt-1">Vol +</span>
         </button>
 
-        {/* Down */}
+        {/* Down - Vol - */}
         <button
           onClick={() => handleDpadPress('down')}
-          className="absolute bottom-2 left-1/2 -translate-x-1/2 w-20 h-16 flex items-center justify-center text-neutral-300 hover:text-white active:scale-90 transition-transform"
-          aria-label="Baixo"
+          className="absolute bottom-2 left-1/2 -translate-x-1/2 w-20 h-16 flex flex-col items-center justify-center text-neutral-300 hover:text-white active:scale-90 transition-transform"
+          aria-label="Diminuir Volume (Baixo)"
+          title="Diminuir Volume"
         >
-          <FiChevronDown className="w-10 h-10" />
+          <span className="text-[9px] font-bold uppercase tracking-wider text-neutral-400 -mb-1">Vol -</span>
+          <FiChevronDown className="w-7 h-7" />
         </button>
 
-        {/* Left */}
+        {/* Left - Rewind 10s */}
         <button
           onClick={() => handleDpadPress('left')}
-          className="absolute left-2 top-1/2 -translate-y-1/2 w-16 h-20 flex items-center justify-center text-neutral-300 hover:text-white active:scale-90 transition-transform"
-          aria-label="Esquerda"
+          className="absolute left-2 top-1/2 -translate-y-1/2 w-16 h-20 flex flex-col items-center justify-center text-neutral-300 hover:text-white active:scale-90 transition-transform"
+          aria-label="Voltar 10s (Esquerda)"
+          title="Voltar 10s"
         >
-          <FiChevronLeft className="w-10 h-10" />
+          <FiChevronLeft className="w-7 h-7" />
+          <span className="text-[9px] font-bold text-neutral-400 -mt-0.5">-10s</span>
         </button>
 
-        {/* Right */}
+        {/* Right - Forward 30s */}
         <button
           onClick={() => handleDpadPress('right')}
-          className="absolute right-2 top-1/2 -translate-y-1/2 w-16 h-20 flex items-center justify-center text-neutral-300 hover:text-white active:scale-90 transition-transform"
-          aria-label="Direita"
+          className="absolute right-2 top-1/2 -translate-y-1/2 w-16 h-20 flex flex-col items-center justify-center text-neutral-300 hover:text-white active:scale-90 transition-transform"
+          aria-label="Avançar 30s (Direita)"
+          title="Avançar 30s"
         >
-          <FiChevronRight className="w-10 h-10" />
+          <FiChevronRight className="w-7 h-7" />
+          <span className="text-[9px] font-bold text-neutral-400 -mt-0.5">+30s</span>
         </button>
 
         {/* Center OK Button */}
         <button
           onClick={() => handleDpadPress('select')}
-          className="w-24 h-24 rounded-full bg-gradient-to-br from-primary-600 to-primary-700 hover:from-primary-500 hover:to-primary-600 active:scale-95 shadow-lg flex items-center justify-center text-lg font-bold text-white transition-transform"
-          aria-label="OK / Selecionar"
+          className="w-24 h-24 rounded-full bg-gradient-to-br from-primary-600 to-primary-700 hover:from-primary-500 hover:to-primary-600 active:scale-95 shadow-lg flex flex-col items-center justify-center text-white transition-transform"
+          aria-label="OK / Play / Pause"
+          title="Play / Pause / OK"
         >
-          OK
+          <span className="text-lg font-bold leading-tight">OK</span>
+          <span className="text-[8px] uppercase tracking-wider opacity-75 font-semibold">Play / Pause</span>
         </button>
       </div>
 

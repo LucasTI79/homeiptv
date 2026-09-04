@@ -244,27 +244,67 @@ export const RemoteExpandedSheet: React.FC<RemoteExpandedSheetProps> = ({ isOpen
                 )}
               </div>
 
-              {/* Volume Slider */}
-              <div className="w-full flex items-center gap-3 bg-neutral-800/60 p-3.5 rounded-2xl border border-neutral-800">
-                <button
-                  onClick={handleToggleMute}
-                  className="text-neutral-400 hover:text-white p-1"
-                >
-                  {isMuted || volume === 0 ? (
-                    <FiVolumeX className="w-5 h-5 text-rose-400" />
-                  ) : (
-                    <FiVolume2 className="w-5 h-5" />
-                  )}
-                </button>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={isMuted ? 0 : volume}
-                  onChange={handleVolumeChange}
-                  className="w-full accent-primary-500 h-1.5 bg-neutral-700 rounded-lg appearance-none cursor-pointer"
-                />
+              {/* Volume Controls (Slider + Granular Buttons) */}
+              <div className="w-full flex flex-col gap-2 bg-neutral-800/60 p-3.5 rounded-2xl border border-neutral-800">
+                <div className="flex items-center justify-between text-xs text-neutral-400 px-1">
+                  <span className="flex items-center gap-1.5 font-medium">
+                    <FiVolume2 className="w-3.5 h-3.5 text-primary-400" />
+                    Volume
+                  </span>
+                  <span className="font-mono font-semibold text-neutral-200">
+                    {isMuted ? 'Mudo' : `${Math.round(volume * 100)}%`}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleToggleMute}
+                    className="p-2 rounded-xl bg-neutral-700/60 hover:bg-neutral-700 active:scale-95 text-neutral-300 hover:text-white transition-colors flex-shrink-0"
+                    title={isMuted ? 'Desmutar' : 'Mutar'}
+                  >
+                    {isMuted || volume === 0 ? (
+                      <FiVolumeX className="w-4 h-4 text-rose-400" />
+                    ) : (
+                      <FiVolume2 className="w-4 h-4" />
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      triggerHaptic();
+                      sendCommand({ type: 'COMMAND_VOLUME', payload: { delta: -0.05 } });
+                    }}
+                    className="w-8 h-8 rounded-xl bg-neutral-700/60 hover:bg-neutral-700 active:scale-95 text-white font-bold flex items-center justify-center transition-all flex-shrink-0 text-base shadow-xs"
+                    aria-label="Diminuir volume"
+                    title="-5%"
+                  >
+                    -
+                  </button>
+
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={isMuted ? 0 : volume}
+                    onChange={handleVolumeChange}
+                    className="flex-1 accent-primary-500 h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      triggerHaptic();
+                      sendCommand({ type: 'COMMAND_VOLUME', payload: { delta: 0.05 } });
+                    }}
+                    className="w-8 h-8 rounded-xl bg-neutral-700/60 hover:bg-neutral-700 active:scale-95 text-white font-bold flex items-center justify-center transition-all flex-shrink-0 text-base shadow-xs"
+                    aria-label="Aumentar volume"
+                    title="+5%"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
             </div>
           )}

@@ -10,6 +10,8 @@ import { FiPlus, FiLayout, FiTrash2 } from 'react-icons/fi';
 import { toast } from 'react-hot-toast';
 import { GuideTour } from '../../components/ui/GuideTour';
 
+import { MULTIVIEW_CONFIG } from '../../constants';
+
 export interface MultiviewChannel {
   id: string;
   name: string;
@@ -22,14 +24,11 @@ interface PlayerWidget {
   channel: MultiviewChannel | null;
 }
 
-const MAX_PLAYERS = 9;
-const STORAGE_KEY_MULTIVIEW_WIDGETS = 'viniplay_multiview_widgets';
-const STORAGE_KEY_MULTIVIEW_LAYOUT = 'viniplay_multiview_layout';
-const STORAGE_KEY_MULTIVIEW_ACTIVE = 'viniplay_multiview_active';
+const { maxPlayers: MAX_PLAYERS, storageKeys, defaultWidget, gridColumns, rowHeight, gridMargin } = MULTIVIEW_CONFIG;
 
 function loadStoredWidgets(): PlayerWidget[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_MULTIVIEW_WIDGETS);
+    const raw = localStorage.getItem(storageKeys.widgets);
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
@@ -38,7 +37,7 @@ function loadStoredWidgets(): PlayerWidget[] {
 
 function loadStoredLayout(): Layout {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_MULTIVIEW_LAYOUT);
+    const raw = localStorage.getItem(storageKeys.layout);
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
@@ -47,7 +46,7 @@ function loadStoredLayout(): Layout {
 
 function loadStoredActivePlayerId(): string | null {
   try {
-    return localStorage.getItem(STORAGE_KEY_MULTIVIEW_ACTIVE) || null;
+    return localStorage.getItem(storageKeys.activePlayer) || null;
   } catch {
     return null;
   }
@@ -64,7 +63,7 @@ export const MultiviewPage: React.FC = () => {
   // Synchronize widgets to localStorage
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY_MULTIVIEW_WIDGETS, JSON.stringify(widgets));
+      localStorage.setItem(storageKeys.widgets, JSON.stringify(widgets));
     } catch (e) {
       console.warn('Failed to save multiview widgets to localStorage', e);
     }
@@ -73,7 +72,7 @@ export const MultiviewPage: React.FC = () => {
   // Synchronize layout to localStorage
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY_MULTIVIEW_LAYOUT, JSON.stringify(layout));
+      localStorage.setItem(storageKeys.layout, JSON.stringify(layout));
     } catch (e) {
       console.warn('Failed to save multiview layout to localStorage', e);
     }
@@ -83,9 +82,9 @@ export const MultiviewPage: React.FC = () => {
   useEffect(() => {
     try {
       if (activePlayerId) {
-        localStorage.setItem(STORAGE_KEY_MULTIVIEW_ACTIVE, activePlayerId);
+        localStorage.setItem(storageKeys.activePlayer, activePlayerId);
       } else {
-        localStorage.removeItem(STORAGE_KEY_MULTIVIEW_ACTIVE);
+        localStorage.removeItem(storageKeys.activePlayer);
       }
     } catch {}
   }, [activePlayerId]);
@@ -108,7 +107,13 @@ export const MultiviewPage: React.FC = () => {
     }
     const id = `player-${Date.now()}`;
     setWidgets([...widgets, { id, channel: null }]);
-    const newLayoutItem = { i: id, x: (widgets.length * 4) % 12, y: Infinity, w: 4, h: 4 };
+    const newLayoutItem = {
+      i: id,
+      x: (widgets.length * defaultWidget.w) % gridColumns,
+      y: Infinity,
+      w: defaultWidget.w,
+      h: defaultWidget.h,
+    };
     setLayout([...layout, newLayoutItem]);
   };
 
@@ -124,9 +129,9 @@ export const MultiviewPage: React.FC = () => {
     setLayout([]);
     setActivePlayerId(null);
     try {
-      localStorage.removeItem(STORAGE_KEY_MULTIVIEW_WIDGETS);
-      localStorage.removeItem(STORAGE_KEY_MULTIVIEW_LAYOUT);
-      localStorage.removeItem(STORAGE_KEY_MULTIVIEW_ACTIVE);
+      localStorage.removeItem(storageKeys.widgets);
+      localStorage.removeItem(storageKeys.layout);
+      localStorage.removeItem(storageKeys.activePlayer);
     } catch {}
     toast.success('Multiview grid cleared');
   };
@@ -269,11 +274,11 @@ export const MultiviewPage: React.FC = () => {
         <ResponsiveGridLayout
           className="layout"
           layouts={{ lg: layout }}
-          cols={{ lg: 12, md: 12, sm: 12, xs: 12, xxs: 12 }}
-          rowHeight={80} // Approx 8vh
+          cols={{ lg: gridColumns, md: gridColumns, sm: gridColumns, xs: gridColumns, xxs: gridColumns }}
+          rowHeight={rowHeight}
           width={window.innerWidth - 16}
           onLayoutChange={(l: Layout) => handleLayoutChange(l)}
-          margin={[8, 8]}
+          margin={gridMargin}
         >
           {widgets.map((widget) => (
             <div key={widget.id}>

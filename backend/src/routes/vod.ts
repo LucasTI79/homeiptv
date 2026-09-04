@@ -6,6 +6,7 @@ import { db } from '../db/connection';
 import { requireAuth } from '../middleware/auth';
 import { allowLocalOrAuth } from '../middleware/allowLocalOrAuth';
 import { getSettings } from '../services/settings';
+import { DOWNLOADS_DIR } from '../config/paths';
 import { XtreamClient } from '../services/xtreamClient';
 import { refreshVodContent, processM3uVod } from '../services/vodProcessor';
 import { getLocalMediaIndex } from '../services/localMediaScanner';
@@ -443,13 +444,29 @@ vodRouter.get('/vod/duration', allowLocalOrAuth(), (req, res) => {
     } catch (e) {
       console.warn('[VOD_DURATION] Could not resolve local media path:', e);
     }
+  } else if (sourceUrl.includes('/api/downloads/stream/')) {
+    try {
+      const parts = sourceUrl.split('/api/downloads/stream/');
+      const rawFileName = parts[1]?.split('?')[0];
+      if (rawFileName) {
+        const decodedFileName = path.basename(decodeURIComponent(rawFileName));
+        const downloadFilePath = path.join(DOWNLOADS_DIR, decodedFileName);
+        if (fs.existsSync(downloadFilePath)) {
+          sourceUrl = downloadFilePath;
+        }
+      }
+    } catch (e) {
+      console.warn('[VOD_DURATION] Could not resolve download path:', e);
+    }
   }
 
   const settings = getSettings();
   const userAgent = settings.userAgents.find((ua) => ua.id === userAgentId);
+  const isHttpUrl = sourceUrl.startsWith('http://') || sourceUrl.startsWith('https://');
 
   const args = [
     '-v', 'error',
+    ...(isHttpUrl ? ['-analyzeduration', '3000000', '-probesize', '3000000', '-timeout', '4000000'] : []),
     ...(userAgent ? ['-user_agent', userAgent.value] : []),
     '-show_entries', 'format=duration',
     '-of', 'default=noprint_wrappers=1:nokey=1',

@@ -97,6 +97,7 @@ export function PlayerPage() {
   const [resumePrompt, setResumePrompt] = useState<{ time: number; formatted: string } | null>(null);
   const hasCheckedResumeRef = useRef<boolean>(false);
   const realVodDurationRef = useRef<number | null>(null);
+  const lastCastedKeyRef = useRef<string | null>(null);
 
   // Probe real duration for VOD items (essential for local media and transcoded streams)
   useEffect(() => {
@@ -349,7 +350,18 @@ export function PlayerPage() {
   useEffect(() => {
     let isCancelled = false;
 
+    if (!isCasting || !isConnected) {
+      lastCastedKeyRef.current = null;
+      return;
+    }
+
     if (isCasting && isConnected && selectedChannel) {
+      const channelKey = `${selectedChannel.id || selectedChannel.url}::${selectedChannel.url}`;
+      if (lastCastedKeyRef.current === channelKey) {
+        return;
+      }
+      lastCastedKeyRef.current = channelKey;
+
       if (playerRef.current) {
         try {
           playerRef.current.pause();
@@ -362,6 +374,18 @@ export function PlayerPage() {
         playerRef.current = null;
       }
 
+      if (videoRef.current) {
+        try {
+          videoRef.current.pause();
+        } catch {}
+      }
+
+      const initialSeek = videoRef.current && videoRef.current.currentTime > 5
+        ? Math.floor(videoRef.current.currentTime)
+        : 0;
+
+      const knownDur = realVodDurationRef.current || (duration > 0 ? duration : undefined);
+
       prepareCastMedia(selectedChannel).then(({ targetUrl, isOffline }) => {
         if (isCancelled) return;
         setIsOfflineMedia(isOffline);
@@ -370,7 +394,9 @@ export function PlayerPage() {
           selectedChannel.name,
           selectedChannel.logo || '',
           !!selectedChannel.isVod,
-          selectedChannel.originalUrl || selectedChannel.url
+          selectedChannel.originalUrl || selectedChannel.url,
+          initialSeek,
+          knownDur
         );
       });
     }
@@ -378,7 +404,7 @@ export function PlayerPage() {
     return () => {
       isCancelled = true;
     };
-  }, [isCasting, isConnected, selectedChannel, loadMedia, prepareCastMedia]);
+  }, [isCasting, isConnected, selectedChannel, loadMedia, prepareCastMedia, duration]);
 
   useEffect(() => {
     if (videoRef.current) {
@@ -1597,15 +1623,28 @@ export function PlayerPage() {
                     console.log('[CAST] Button clicked. isCasting:', isCasting);
                     if (!isCasting) {
                       await requestSession();
-                    } else {
+                    } else if (selectedChannel) {
+                      const channelKey = `${selectedChannel.id || selectedChannel.url}::${selectedChannel.url}`;
+                      lastCastedKeyRef.current = channelKey;
+                      const initialSeek = videoRef.current && videoRef.current.currentTime > 5
+                        ? Math.floor(videoRef.current.currentTime)
+                        : 0;
+                      const knownDur = realVodDurationRef.current || (duration > 0 ? duration : undefined);
                       const { targetUrl, isOffline } = await prepareCastMedia(selectedChannel);
                       setIsOfflineMedia(isOffline);
+                      if (videoRef.current) {
+                        try {
+                          videoRef.current.pause();
+                        } catch {}
+                      }
                       loadMedia(
                         targetUrl,
                         selectedChannel.name,
                         (selectedChannel as any).logo || '',
                         !!selectedChannel.isVod,
-                        selectedChannel.originalUrl || selectedChannel.url
+                        selectedChannel.originalUrl || selectedChannel.url,
+                        initialSeek,
+                        knownDur
                       );
                     }
                   }}

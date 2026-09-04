@@ -95,6 +95,18 @@ downloadsRouter.post('/downloads/upload-local/:fileName', streamAuth, (req, res)
   });
 });
 
+// OPTIONS /api/downloads/stream/:fileName
+downloadsRouter.options('/downloads/stream/:fileName', (_req, res) => {
+  res.writeHead(204, {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+    'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Range',
+    'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
+    'Cross-Origin-Resource-Policy': 'cross-origin',
+  });
+  return res.end();
+});
+
 // GET /api/downloads/stream/:fileName
 // Streams downloaded file with full HTTP Range request support (206 Partial Content) for Smart TVs, Chromecast, and local players
 downloadsRouter.get('/downloads/stream/:fileName', streamAuth, (req, res) => {
@@ -107,6 +119,21 @@ downloadsRouter.get('/downloads/stream/:fileName', streamAuth, (req, res) => {
 
   const stat = fs.statSync(filePath);
   const fileSize = stat.size;
+
+  if (req.method === 'HEAD') {
+    res.writeHead(200, {
+      'Content-Length': fileSize,
+      'Content-Type': 'video/mp4',
+      'Accept-Ranges': 'bytes',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+      'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Range',
+      'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+    });
+    return res.end();
+  }
+
   const range = req.headers.range;
 
   if (range) {
@@ -126,6 +153,11 @@ downloadsRouter.get('/downloads/stream/:fileName', streamAuth, (req, res) => {
       'Accept-Ranges': 'bytes',
       'Content-Length': chunksize,
       'Content-Type': 'video/mp4',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+      'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Range',
+      'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
     };
     res.writeHead(206, head);
     file.pipe(res);
@@ -134,6 +166,11 @@ downloadsRouter.get('/downloads/stream/:fileName', streamAuth, (req, res) => {
       'Content-Length': fileSize,
       'Content-Type': 'video/mp4',
       'Accept-Ranges': 'bytes',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+      'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Range',
+      'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
     };
     res.writeHead(200, head);
     fs.createReadStream(filePath).pipe(res);

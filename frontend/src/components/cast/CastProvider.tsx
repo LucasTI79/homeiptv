@@ -41,7 +41,8 @@ interface CastContextType {
     logo: string,
     isVod?: boolean,
     originalUrl?: string,
-    seekSeconds?: number
+    seekSeconds?: number,
+    knownDuration?: number
   ) => Promise<void>;
   requestSession: () => Promise<void>;
   togglePlayPause: () => void;
@@ -314,40 +315,73 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const loadMedia = useCallback(
-    async (url: string, name: string, logo: string, isVod = false, originalUrl?: string, seekSeconds = 0) => {
+    async (
+      url: string,
+      name: string,
+      logo: string,
+      isVod = false,
+      originalUrl?: string,
+      seekSeconds = 0,
+      knownDuration?: number
+    ) => {
       if (!castSessionRef.current) {
         toast.error('Not connected to a Cast device.');
         return;
       }
 
       const activeCastProfileId = settings?.activeCastProfileId || 'cast-default';
+      const userAgentId = settings?.activeUserAgentId || 'default-ua-1724778434000';
+      const castPort = Number((settings as any)?.castMediaPort || (settings as any)?.serverPort || CAST_MEDIA_PORT);
+
+      // Check if URL is local backend (/api/..., /stream..., or current hostname)
+      const isLocalUrl =
+        (!url.startsWith('http://') && !url.startsWith('https://')) ||
+        url.includes(window.location.hostname);
+
       let castUrl = url;
 
-      if (!url.includes(`profileId=${activeCastProfileId}`)) {
-        if (url.includes('profileId=')) {
-          castUrl = url.replace(/profileId=[^&]+/, `profileId=${activeCastProfileId}`);
-        } else {
-          castUrl = `${url}${url.includes('?') ? '&' : '?'}profileId=${activeCastProfileId}`;
+      if (!isLocalUrl) {
+        // Remote provider stream (IPTV M3U live or VOD).
+        // External IPTV servers block Chromecast user-agents and direct connections.
+        // We route them through our local /stream proxy which uses ffmpeg cast-default profile.
+        let streamPath = `/stream?url=${encodeURIComponent(url)}&profileId=${encodeURIComponent(activeCastProfileId)}&userAgentId=${encodeURIComponent(userAgentId)}`;
+        if (name) {
+          streamPath += `&vodName=${encodeURIComponent(name)}`;
+        }
+        if (logo) {
+          streamPath += `&vodLogo=${encodeURIComponent(logo)}`;
+        }
+        if (isVod && seekSeconds > 0) {
+          streamPath += `&startTime=${seekSeconds}`;
+        }
+        castUrl = streamPath;
+      } else {
+        // Local endpoint (/api/local-media, /api/downloads, or local /stream)
+        if (castUrl.startsWith('/stream')) {
+          if (!castUrl.includes(`profileId=${activeCastProfileId}`)) {
+            if (castUrl.includes('profileId=')) {
+              castUrl = castUrl.replace(/profileId=[^&]+/, `profileId=${activeCastProfileId}`);
+            } else {
+              castUrl = `${castUrl}${castUrl.includes('?') ? '&' : '?'}profileId=${activeCastProfileId}`;
+            }
+          }
+        }
+        if (isVod && seekSeconds > 0 && !castUrl.includes('startTime=')) {
+          castUrl = `${castUrl}${castUrl.includes('?') ? '&' : '?'}startTime=${seekSeconds}`;
         }
       }
 
-      if (isVod && seekSeconds > 0) {
-        castUrl = `${castUrl}${castUrl.includes('?') ? '&' : '?'}startTime=${seekSeconds}`;
-      }
-
       try {
-        const { token } = await generateCastToken(url);
+        const { token } = await generateCastToken(castUrl);
         castUrl = `${castUrl}${castUrl.includes('?') ? '&' : '?'}castToken=${token}`;
       } catch (err) {
-        toast.error('Failed to generate cast token');
-        return;
+        console.warn('Failed to generate cast token, proceeding without token:', err);
       }
 
-      const castPort = Number((settings as any)?.castMediaPort || (settings as any)?.serverPort || CAST_MEDIA_PORT);
       const absoluteUrl = toCastMediaUrl(castUrl, castPort);
 
-      let durationSeconds: number | null = null;
-      if (isVod && originalUrl) {
+      let durationSeconds: number | null = knownDuration && knownDuration > 0 ? knownDuration : null;
+      if (!durationSeconds && isVod && originalUrl) {
         durationSeconds = await probeVodDuration(originalUrl, settings?.activeUserAgentId);
       }
 
@@ -380,6 +414,7 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
           duration: durationSeconds,
         };
       } catch (err) {
+        console.error('Failed to load media on Cast device:', err);
         toast.error('Failed to load media on Cast device.');
       }
     },

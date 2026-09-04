@@ -69,7 +69,7 @@ export async function probeVodDuration(sourceUrl: string, userAgentId?: string):
     if (userAgentId) params.set('userAgentId', userAgentId);
     
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
     
     // We use standard fetch here to easily pass the abort signal
     const response = await fetch(`/api/vod/duration?${params}`, { signal: controller.signal });

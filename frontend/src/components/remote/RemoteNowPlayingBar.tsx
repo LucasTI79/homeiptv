@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FiTv, FiPlay, FiPause, FiWifiOff, FiHardDrive, FiGlobe } from 'react-icons/fi';
+import { FiTv, FiPlay, FiPause, FiWifiOff, FiHardDrive, FiGlobe, FiSkipBack, FiSkipForward } from 'react-icons/fi';
 import { useRemoteStore } from '../../store/remoteStore';
 import { RemoteExpandedSheet } from './RemoteExpandedSheet';
 
@@ -89,14 +89,46 @@ export const RemoteNowPlayingBar: React.FC = () => {
           </p>
         </div>
 
-        {/* Quick Play/Pause Button */}
-        <button
-          onClick={handlePlayPause}
-          className="w-10 h-10 rounded-xl bg-primary-600 hover:bg-primary-500 active:scale-95 text-white flex items-center justify-center shadow-lg transition-transform flex-shrink-0"
-          aria-label={isPaused ? 'Reproduzir na TV' : 'Pausar na TV'}
-        >
-          {isPaused ? <FiPlay className="w-5 h-5 ml-0.5" /> : <FiPause className="w-5 h-5" />}
-        </button>
+        {/* Quick Controls: Prev, Play/Pause, Next */}
+        <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+          {remoteNowPlaying?.hasPrevEpisode && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                triggerHaptic();
+                sendCommand({ type: 'COMMAND_PREV_EPISODE' });
+              }}
+              className="p-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-blue-300 border border-blue-500/20 active:scale-95 transition-all"
+              aria-label="Episódio anterior na TV"
+              title="Episódio anterior"
+            >
+              <FiSkipBack className="w-4 h-4" />
+            </button>
+          )}
+
+          <button
+            onClick={handlePlayPause}
+            className="w-10 h-10 rounded-xl bg-primary-600 hover:bg-primary-500 active:scale-95 text-white flex items-center justify-center shadow-lg transition-transform flex-shrink-0"
+            aria-label={isPaused ? 'Reproduzir na TV' : 'Pausar na TV'}
+          >
+            {isPaused ? <FiPlay className="w-5 h-5 ml-0.5" /> : <FiPause className="w-5 h-5" />}
+          </button>
+
+          {remoteNowPlaying?.hasNextEpisode && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                triggerHaptic();
+                sendCommand({ type: 'COMMAND_NEXT_EPISODE' });
+              }}
+              className="p-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-blue-300 border border-blue-500/20 active:scale-95 transition-all"
+              aria-label="Próximo episódio na TV"
+              title="Próximo episódio"
+            >
+              <FiSkipForward className="w-4 h-4" />
+            </button>
+          )}
+        </div>
 
         {/* Progress Bar line at the very bottom */}
         {progressPercent > 0 && (

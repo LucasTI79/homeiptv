@@ -5,6 +5,7 @@ import {
   FiPause,
   FiRotateCcw,
   FiRotateCw,
+  FiSkipBack,
   FiSkipForward,
   FiVolume2,
   FiVolumeX,
@@ -56,6 +57,21 @@ export const RemoteExpandedSheet: React.FC<RemoteExpandedSheetProps> = ({ isOpen
     sendCommand({ type: 'COMMAND_SKIP_INTRO' });
   };
 
+  const handleRestart = () => {
+    triggerHaptic();
+    sendCommand({ type: 'COMMAND_RESTART' });
+  };
+
+  const handlePrevEpisode = () => {
+    triggerHaptic();
+    sendCommand({ type: 'COMMAND_PREV_EPISODE' });
+  };
+
+  const handleNextEpisode = () => {
+    triggerHaptic();
+    sendCommand({ type: 'COMMAND_NEXT_EPISODE' });
+  };
+
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const setVolume = parseFloat(e.target.value);
     sendCommand({ type: 'COMMAND_VOLUME', payload: { setVolume } });
@@ -78,6 +94,8 @@ export const RemoteExpandedSheet: React.FC<RemoteExpandedSheetProps> = ({ isOpen
   const volume = remoteNowPlaying?.volume ?? 1;
   const isMuted = remoteNowPlaying?.isMuted ?? false;
   const canSkipIntro = remoteNowPlaying?.introDetection?.canSkip;
+  const hasPrevEpisode = remoteNowPlaying?.hasPrevEpisode;
+  const hasNextEpisode = remoteNowPlaying?.hasNextEpisode;
 
   const formatTime = (secs: number) => {
     if (!secs || isNaN(secs)) return '0:00';
@@ -226,8 +244,61 @@ export const RemoteExpandedSheet: React.FC<RemoteExpandedSheetProps> = ({ isOpen
                 </div>
               )}
 
+              {/* Extra Navigation (Do Início / Anterior / Próximo) */}
+              {(duration > 0 || hasPrevEpisode || hasNextEpisode) && (
+                <div className="flex items-center justify-center gap-2 w-full mb-5">
+                  {hasPrevEpisode && (
+                    <button
+                      type="button"
+                      onClick={handlePrevEpisode}
+                      className="flex-1 py-2 px-3 rounded-xl bg-blue-900/40 hover:bg-blue-800 text-blue-200 border border-blue-500/30 active:scale-95 flex items-center justify-center gap-1.5 text-xs font-semibold transition-all shadow-sm"
+                      title="Episódio Anterior"
+                    >
+                      <FiSkipBack className="w-4 h-4 text-blue-300" />
+                      <span>Ep. Anterior</span>
+                    </button>
+                  )}
+
+                  {duration > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleRestart}
+                      className="flex-1 py-2 px-3 rounded-xl bg-neutral-800 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 active:scale-95 flex items-center justify-center gap-1.5 text-xs font-semibold transition-all shadow-sm"
+                      title="Começar do Início"
+                    >
+                      <FiRotateCcw className="w-4 h-4 text-amber-400" />
+                      <span>Do início</span>
+                    </button>
+                  )}
+
+                  {hasNextEpisode && (
+                    <button
+                      type="button"
+                      onClick={handleNextEpisode}
+                      className="flex-1 py-2 px-3 rounded-xl bg-blue-900/40 hover:bg-blue-800 text-blue-200 border border-blue-500/30 active:scale-95 flex items-center justify-center gap-1.5 text-xs font-semibold transition-all shadow-sm"
+                      title="Próximo Episódio"
+                    >
+                      <span>Próximo Ep.</span>
+                      <FiSkipForward className="w-4 h-4 text-blue-300" />
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* Playback Controls */}
-              <div className="flex items-center justify-center gap-2.5 mb-8">
+              <div className="flex items-center justify-center gap-2 mb-8">
+                {hasPrevEpisode && (
+                  <button
+                    onClick={handlePrevEpisode}
+                    className="p-2.5 text-blue-300 hover:text-white hover:bg-blue-900/30 rounded-2xl transition-colors active:scale-95 flex flex-col items-center"
+                    aria-label="Episódio anterior"
+                    title="Episódio Anterior"
+                  >
+                    <FiSkipBack className="w-5 h-5" />
+                    <span className="text-[9px] font-bold text-blue-400 mt-0.5">Ant</span>
+                  </button>
+                )}
+
                 {duration > 0 && (
                   <>
                     <button
@@ -280,6 +351,18 @@ export const RemoteExpandedSheet: React.FC<RemoteExpandedSheetProps> = ({ isOpen
                       <span className="text-[10px] font-bold text-neutral-400 mt-0.5">+10s</span>
                     </button>
                   </>
+                )}
+
+                {hasNextEpisode && (
+                  <button
+                    onClick={handleNextEpisode}
+                    className="p-2.5 text-blue-300 hover:text-white hover:bg-blue-900/30 rounded-2xl transition-colors active:scale-95 flex flex-col items-center"
+                    aria-label="Próximo episódio"
+                    title="Próximo Episódio"
+                  >
+                    <FiSkipForward className="w-5 h-5" />
+                    <span className="text-[9px] font-bold text-blue-400 mt-0.5">Próx</span>
+                  </button>
                 )}
               </div>
 

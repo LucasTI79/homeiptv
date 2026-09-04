@@ -8,7 +8,7 @@ import { GuideTour } from '../components/ui/GuideTour';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useCast } from '../components/cast/CastProvider';
 import { usePlaybackStore } from '../store/playbackStore';
-import { FiCast, FiRotateCcw, FiRotateCw, FiPlay, FiX, FiHardDrive, FiSmartphone, FiGlobe, FiTv } from 'react-icons/fi';
+import { FiCast, FiRotateCcw, FiRotateCw, FiPlay, FiX, FiHardDrive, FiSmartphone, FiGlobe, FiTv, FiSkipBack, FiSkipForward } from 'react-icons/fi';
 import { RemotePairingModal } from '../components/remote/RemotePairingModal';
 import { useRemoteStore } from '../store/remoteStore';
 import { SkipIntroOverlay } from '../components/vod/SkipIntroOverlay';
@@ -416,6 +416,155 @@ export function PlayerPage() {
     }
   };
 
+  // Restart video from beginning
+  const handleRestart = useCallback(() => {
+    if (isCasting) {
+      seekToTime(0);
+    } else if (videoRef.current) {
+      videoRef.current.currentTime = 0;
+      setCurrentTime(0);
+      videoRef.current.play().catch(() => {});
+    }
+  }, [isCasting, seekToTime]);
+
+  // Play previous episode handler
+  const handlePlayPrevEpisode = useCallback(() => {
+    const seriesContext = selectedChannel?.seriesContext;
+    if (!seriesContext || seriesContext.episodeIndex <= 0) return;
+
+    const prevIdx = seriesContext.episodeIndex - 1;
+    const prevEp = seriesContext.episodes[prevIdx];
+    if (!prevEp) return;
+
+    const prevId = `${seriesContext.seriesId}_s${seriesContext.season}_e${prevIdx}`;
+    const prevName = `${seriesContext.seriesName} - ${prevEp.name || `Ep ${prevIdx + 1}`}`;
+
+    const nextForPrev = {
+      url: selectedChannel.url,
+      name: selectedChannel.name,
+      season: String(seriesContext.season),
+      episodeIndex: seriesContext.episodeIndex,
+    };
+
+    saveProgress({
+      id: prevId,
+      seriesId: seriesContext.seriesId,
+      seriesName: seriesContext.seriesName,
+      season: String(seriesContext.season),
+      episodeIndex: prevIdx,
+      episodes: seriesContext.episodes,
+      nextEpisode: nextForPrev,
+      title: prevName,
+      type: 'series',
+      url: prevEp.url,
+      logo: selectedChannel.logo,
+      currentTime: 0,
+      duration: 0,
+    });
+
+    setNextEpCountdown(null);
+    setNextEpDismissed(false);
+    hasCheckedResumeRef.current = false;
+
+    setSelectedChannel({
+      url: prevEp.url,
+      name: prevName,
+      id: prevId,
+      isVod: true,
+      vodType: 'series',
+      logo: selectedChannel.logo,
+      originalUrl: prevEp.url,
+      seriesContext: {
+        ...seriesContext,
+        episodeIndex: prevIdx,
+      },
+      nextEpisode: nextForPrev,
+    });
+  }, [selectedChannel, setSelectedChannel, saveProgress]);
+
+  // Play next episode handler
+  const handlePlayNextEpisode = useCallback(() => {
+    if (!selectedChannel) return;
+    let next = selectedChannel.nextEpisode;
+    const seriesContext = selectedChannel.seriesContext;
+
+    if (!next && seriesContext && seriesContext.episodes) {
+      const nextIdx = seriesContext.episodeIndex + 1;
+      if (nextIdx < seriesContext.episodes.length) {
+        const nextEp = seriesContext.episodes[nextIdx];
+        next = {
+          url: nextEp.url,
+          name: `${seriesContext.seriesName} - ${nextEp.name || `Ep ${nextIdx + 1}`}`,
+          season: String(seriesContext.season),
+          episodeIndex: nextIdx,
+        };
+      }
+    }
+
+    if (!next) return;
+
+    // Compute what comes after the next episode if seriesContext exists
+    let subsequentEpisode: { url: string; name: string; season: string; episodeIndex: number } | undefined;
+    if (seriesContext) {
+      const nextIdx = next.episodeIndex + 1;
+      if (nextIdx < seriesContext.episodes.length) {
+        const sub = seriesContext.episodes[nextIdx];
+        subsequentEpisode = {
+          url: sub.url,
+          name: `${seriesContext.seriesName} - ${sub.name || `Ep ${nextIdx + 1}`}`,
+          season: next.season,
+          episodeIndex: nextIdx,
+        };
+      }
+    }
+
+    const nextId = `${seriesContext?.seriesId || 'series'}_s${next.season}_e${next.episodeIndex}`;
+
+    // Immediately register the new episode in Continue Watching so it never disappears
+    saveProgress({
+      id: nextId,
+      seriesId: seriesContext?.seriesId,
+      seriesName: seriesContext?.seriesName,
+      season: next.season,
+      episodeIndex: next.episodeIndex,
+      episodes: seriesContext?.episodes,
+      nextEpisode: subsequentEpisode,
+      title: next.name,
+      type: 'series',
+      url: next.url,
+      logo: selectedChannel.logo,
+      currentTime: 0,
+      duration: 0,
+    });
+
+    setNextEpCountdown(null);
+    setNextEpDismissed(false);
+    hasCheckedResumeRef.current = false;
+
+    setSelectedChannel({
+      url: next.url,
+      name: next.name,
+      id: nextId,
+      isVod: true,
+      vodType: 'series',
+      logo: selectedChannel.logo,
+      originalUrl: next.url,
+      seriesContext: seriesContext ? {
+        ...seriesContext,
+        season: next.season,
+        episodeIndex: next.episodeIndex,
+      } : undefined,
+      nextEpisode: subsequentEpisode,
+    });
+  }, [selectedChannel, setSelectedChannel, saveProgress]);
+
+  const hasPrevEpisode = !!(selectedChannel?.seriesContext && selectedChannel.seriesContext.episodeIndex > 0);
+  const hasNextEpisode = !!(
+    selectedChannel?.nextEpisode ||
+    (selectedChannel?.seriesContext?.episodes &&
+      selectedChannel.seriesContext.episodeIndex + 1 < selectedChannel.seriesContext.episodes.length)
+  );
+
   // Remote Control: Sincronização do que está tocando no PC para o celular
   useEffect(() => {
     if (!selectedChannel) return;
@@ -441,6 +590,8 @@ export function PlayerPage() {
       isMuted: effectiveIsMuted,
       isOffline: isOfflineMedia,
       isCasting,
+      hasPrevEpisode,
+      hasNextEpisode,
       seriesContext: selectedChannel.seriesContext,
       introDetection: activeIntroSegment
         ? { canSkip: true, introEnd: activeIntroSegment.endSec }
@@ -460,6 +611,8 @@ export function PlayerPage() {
     volume,
     isMuted,
     isOfflineMedia,
+    hasPrevEpisode,
+    hasNextEpisode,
     activeIntroSegment,
   ]);
 
@@ -544,6 +697,12 @@ export function PlayerPage() {
           }
           setActiveIntroSegment(null);
         }
+      } else if (msg.type === 'COMMAND_PREV_EPISODE') {
+        handlePlayPrevEpisode();
+      } else if (msg.type === 'COMMAND_NEXT_EPISODE') {
+        handlePlayNextEpisode();
+      } else if (msg.type === 'COMMAND_RESTART') {
+        handleRestart();
       } else if (msg.type === 'COMMAND_DPAD') {
         const { key } = msg.payload;
 
@@ -618,6 +777,9 @@ export function PlayerPage() {
     activeIntroSegment,
     toggleMute,
     navigate,
+    handlePlayPrevEpisode,
+    handlePlayNextEpisode,
+    handleRestart,
   ]);
 
   // Helper to determine item ID in progress store
@@ -666,67 +828,6 @@ export function PlayerPage() {
   const handleResumeDismiss = () => {
     setResumePrompt(null);
   };
-
-  // Play next episode handler
-  const handlePlayNextEpisode = useCallback(() => {
-    if (!selectedChannel?.nextEpisode) return;
-    const next = selectedChannel.nextEpisode;
-    const seriesContext = selectedChannel.seriesContext;
-
-    // Compute what comes after the next episode if seriesContext exists
-    let subsequentEpisode: { url: string; name: string; season: string; episodeIndex: number } | undefined;
-    if (seriesContext) {
-      const nextIdx = next.episodeIndex + 1;
-      if (nextIdx < seriesContext.episodes.length) {
-        const sub = seriesContext.episodes[nextIdx];
-        subsequentEpisode = {
-          url: sub.url,
-          name: `${seriesContext.seriesName} - ${sub.name || `Ep ${nextIdx + 1}`}`,
-          season: next.season,
-          episodeIndex: nextIdx,
-        };
-      }
-    }
-
-    const nextId = `${seriesContext?.seriesId || 'series'}_s${next.season}_e${next.episodeIndex}`;
-
-    // Immediately register the new episode in Continue Watching so it never disappears
-    saveProgress({
-      id: nextId,
-      seriesId: seriesContext?.seriesId,
-      seriesName: seriesContext?.seriesName,
-      season: next.season,
-      episodeIndex: next.episodeIndex,
-      episodes: seriesContext?.episodes,
-      nextEpisode: subsequentEpisode,
-      title: next.name,
-      type: 'series',
-      url: next.url,
-      logo: selectedChannel.logo,
-      currentTime: 0,
-      duration: 0,
-    });
-
-    setNextEpCountdown(null);
-    setNextEpDismissed(false);
-    hasCheckedResumeRef.current = false;
-
-    setSelectedChannel({
-      url: next.url,
-      name: next.name,
-      id: nextId,
-      isVod: true,
-      vodType: 'series',
-      logo: selectedChannel.logo,
-      originalUrl: next.url,
-      seriesContext: seriesContext ? {
-        ...seriesContext,
-        season: next.season,
-        episodeIndex: next.episodeIndex,
-      } : undefined,
-      nextEpisode: subsequentEpisode,
-    });
-  }, [selectedChannel, setSelectedChannel, saveProgress]);
 
   // Skip Intro handler
   const handleSkipIntro = useCallback((targetSec: number) => {
@@ -1088,6 +1189,37 @@ export function PlayerPage() {
                 >
                   <FiRotateCw className="w-3.5 h-3.5" /> +10s
                 </button>
+
+                <button
+                  type="button"
+                  onClick={handleRestart}
+                  className="px-2.5 py-1.5 bg-gray-800 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-lg flex items-center gap-1 text-xs font-semibold"
+                  title="Começar do início"
+                >
+                  <FiRotateCcw className="w-3.5 h-3.5" /> Do início
+                </button>
+
+                {hasPrevEpisode && (
+                  <button
+                    type="button"
+                    onClick={handlePlayPrevEpisode}
+                    className="px-2.5 py-1.5 bg-blue-900/40 hover:bg-blue-800 text-blue-200 border border-blue-500/30 rounded-lg flex items-center gap-1 text-xs font-semibold"
+                    title="Episódio anterior"
+                  >
+                    <FiSkipBack className="w-3.5 h-3.5" /> Ep. Anterior
+                  </button>
+                )}
+
+                {hasNextEpisode && (
+                  <button
+                    type="button"
+                    onClick={handlePlayNextEpisode}
+                    className="px-2.5 py-1.5 bg-blue-900/40 hover:bg-blue-800 text-blue-200 border border-blue-500/30 rounded-lg flex items-center gap-1 text-xs font-semibold"
+                    title="Próximo episódio"
+                  >
+                    <FiSkipForward className="w-3.5 h-3.5" /> Próximo Ep.
+                  </button>
+                )}
               </div>
             )}
             <button
@@ -1223,7 +1355,35 @@ export function PlayerPage() {
           )}
 
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 sm:gap-4">
+              {/* Começar do início */}
+              {selectedChannel.isVod && (
+                <Tooltip content="Começar do início">
+                  <button
+                    type="button"
+                    onClick={handleRestart}
+                    className="text-amber-300 hover:text-amber-200 p-1 transition hover:scale-110 flex items-center justify-center"
+                    title="Começar do início"
+                  >
+                    <FiRotateCcw className="w-5 h-5 text-amber-400" />
+                  </button>
+                </Tooltip>
+              )}
+
+              {/* Episódio Anterior */}
+              {hasPrevEpisode && (
+                <Tooltip content="Episódio anterior">
+                  <button
+                    type="button"
+                    onClick={handlePlayPrevEpisode}
+                    className="text-white hover:text-blue-400 p-1 transition hover:scale-110 flex items-center justify-center"
+                    title="Episódio anterior"
+                  >
+                    <FiSkipBack className="w-5 h-5" />
+                  </button>
+                </Tooltip>
+              )}
+
               <Tooltip content={(isCasting ? !castIsPaused : isPlaying) ? 'Pause' : 'Play'}>
                 <button id="play-pause-btn" onClick={togglePlay} className="text-white hover:text-blue-400">
                   {(isCasting ? !castIsPaused : isPlaying) ? (
@@ -1234,8 +1394,22 @@ export function PlayerPage() {
                 </button>
               </Tooltip>
 
+              {/* Próximo Episódio */}
+              {hasNextEpisode && (
+                <Tooltip content="Próximo episódio">
+                  <button
+                    type="button"
+                    onClick={handlePlayNextEpisode}
+                    className="text-white hover:text-blue-400 p-1 transition hover:scale-110 flex items-center justify-center"
+                    title="Próximo episódio"
+                  >
+                    <FiSkipForward className="w-5 h-5" />
+                  </button>
+                </Tooltip>
+              )}
+
               {selectedChannel.isVod && (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 sm:gap-2">
                   <Tooltip content="Rewind 10s">
                     <button
                       type="button"

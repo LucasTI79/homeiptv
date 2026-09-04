@@ -489,18 +489,18 @@ export function PlayerPage() {
         if (key === 'left') {
           handleSeek(-10);
         } else if (key === 'right') {
-          handleSeek(30);
+          handleSeek(10);
         } else if (key === 'up') {
           if (isCasting) {
-            setCastVolume(Math.min(1, castVolume + 0.05));
+            setCastVolume(Math.min(1, castVolume + 0.01));
           } else {
-            setVolume((prev) => Math.min(1, prev + 0.05));
+            setVolume((prev) => Math.min(1, prev + 0.01));
           }
         } else if (key === 'down') {
           if (isCasting) {
-            setCastVolume(Math.max(0, castVolume - 0.05));
+            setCastVolume(Math.max(0, castVolume - 0.01));
           } else {
-            setVolume((prev) => Math.max(0, prev - 0.05));
+            setVolume((prev) => Math.max(0, prev - 0.01));
           }
         } else if (key === 'select') {
           if (activeIntroSegment) {
@@ -1153,10 +1153,10 @@ export function PlayerPage() {
                       <FiRotateCcw className="w-5 h-5" />
                     </button>
                   </Tooltip>
-                  <Tooltip content="Forward 30s">
+                  <Tooltip content="Forward 10s">
                     <button
                       type="button"
-                      onClick={() => handleSeek(30)}
+                      onClick={() => handleSeek(10)}
                       className="text-white hover:text-blue-400 p-1"
                     >
                       <FiRotateCw className="w-5 h-5" />

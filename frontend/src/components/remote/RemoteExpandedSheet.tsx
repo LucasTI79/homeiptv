@@ -214,33 +214,59 @@ export const RemoteExpandedSheet: React.FC<RemoteExpandedSheetProps> = ({ isOpen
               )}
 
               {/* Playback Controls */}
-              <div className="flex items-center justify-center gap-6 mb-8">
+              <div className="flex items-center justify-center gap-2.5 mb-8">
                 {duration > 0 && (
-                  <button
-                    onClick={() => handleSeekDelta(-10)}
-                    className="p-3 text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-full transition-colors active:scale-95"
-                    aria-label="Voltar 10 segundos"
-                  >
-                    <FiRotateCcw className="w-7 h-7" />
-                  </button>
+                  <>
+                    <button
+                      onClick={() => handleSeekDelta(-10)}
+                      className="p-2.5 text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-2xl transition-colors active:scale-95 flex flex-col items-center"
+                      aria-label="Voltar 10 segundos"
+                      title="Voltar 10s"
+                    >
+                      <FiRotateCcw className="w-5 h-5" />
+                      <span className="text-[10px] font-bold text-neutral-400 mt-0.5">-10s</span>
+                    </button>
+                    <button
+                      onClick={() => handleSeekDelta(-5)}
+                      className="p-2.5 text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-2xl transition-colors active:scale-95 flex flex-col items-center"
+                      aria-label="Voltar 5 segundos"
+                      title="Voltar 5s"
+                    >
+                      <FiRotateCcw className="w-5 h-5" />
+                      <span className="text-[10px] font-bold text-neutral-400 mt-0.5">-5s</span>
+                    </button>
+                  </>
                 )}
 
                 <button
                   onClick={handlePlayPause}
-                  className="w-18 h-18 rounded-full bg-primary-600 hover:bg-primary-500 active:scale-95 text-white shadow-xl shadow-primary-600/30 flex items-center justify-center transition-all"
+                  className="w-16 h-16 rounded-full bg-primary-600 hover:bg-primary-500 active:scale-95 text-white shadow-xl shadow-primary-600/30 flex items-center justify-center transition-all mx-1.5"
                   aria-label={isPaused ? 'Reproduzir' : 'Pausar'}
                 >
-                  {isPaused ? <FiPlay className="w-9 h-9 ml-1" /> : <FiPause className="w-9 h-9" />}
+                  {isPaused ? <FiPlay className="w-8 h-8 ml-1" /> : <FiPause className="w-8 h-8" />}
                 </button>
 
                 {duration > 0 && (
-                  <button
-                    onClick={() => handleSeekDelta(30)}
-                    className="p-3 text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-full transition-colors active:scale-95"
-                    aria-label="Avançar 30 segundos"
-                  >
-                    <FiRotateCw className="w-7 h-7" />
-                  </button>
+                  <>
+                    <button
+                      onClick={() => handleSeekDelta(5)}
+                      className="p-2.5 text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-2xl transition-colors active:scale-95 flex flex-col items-center"
+                      aria-label="Avançar 5 segundos"
+                      title="Avançar 5s"
+                    >
+                      <FiRotateCw className="w-5 h-5" />
+                      <span className="text-[10px] font-bold text-neutral-400 mt-0.5">+5s</span>
+                    </button>
+                    <button
+                      onClick={() => handleSeekDelta(10)}
+                      className="p-2.5 text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-2xl transition-colors active:scale-95 flex flex-col items-center"
+                      aria-label="Avançar 10 segundos"
+                      title="Avançar 10s"
+                    >
+                      <FiRotateCw className="w-5 h-5" />
+                      <span className="text-[10px] font-bold text-neutral-400 mt-0.5">+10s</span>
+                    </button>
+                  </>
                 )}
               </div>
 
@@ -273,11 +299,11 @@ export const RemoteExpandedSheet: React.FC<RemoteExpandedSheetProps> = ({ isOpen
                     type="button"
                     onClick={() => {
                       triggerHaptic();
-                      sendCommand({ type: 'COMMAND_VOLUME', payload: { delta: -0.05 } });
+                      sendCommand({ type: 'COMMAND_VOLUME', payload: { delta: -0.01 } });
                     }}
                     className="w-8 h-8 rounded-xl bg-neutral-700/60 hover:bg-neutral-700 active:scale-95 text-white font-bold flex items-center justify-center transition-all flex-shrink-0 text-base shadow-xs"
-                    aria-label="Diminuir volume"
-                    title="-5%"
+                    aria-label="Diminuir volume 1%"
+                    title="-1%"
                   >
                     -
                   </button>
@@ -296,11 +322,11 @@ export const RemoteExpandedSheet: React.FC<RemoteExpandedSheetProps> = ({ isOpen
                     type="button"
                     onClick={() => {
                       triggerHaptic();
-                      sendCommand({ type: 'COMMAND_VOLUME', payload: { delta: 0.05 } });
+                      sendCommand({ type: 'COMMAND_VOLUME', payload: { delta: 0.01 } });
                     }}
                     className="w-8 h-8 rounded-xl bg-neutral-700/60 hover:bg-neutral-700 active:scale-95 text-white font-bold flex items-center justify-center transition-all flex-shrink-0 text-base shadow-xs"
-                    aria-label="Aumentar volume"
-                    title="+5%"
+                    aria-label="Aumentar volume 1%"
+                    title="+1%"
                   >
                     +
                   </button>

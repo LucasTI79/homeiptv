@@ -127,15 +127,15 @@ export const RemoteDpadView: React.FC = () => {
           <span className="text-[9px] font-bold text-neutral-400 -mt-0.5">-10s</span>
         </button>
 
-        {/* Right - Forward 30s */}
+        {/* Right - Forward 10s */}
         <button
           onClick={() => handleDpadPress('right')}
           className="absolute right-2 top-1/2 -translate-y-1/2 w-16 h-20 flex flex-col items-center justify-center text-neutral-300 hover:text-white active:scale-90 transition-transform"
-          aria-label="Avançar 30s (Direita)"
-          title="Avançar 30s"
+          aria-label="Avançar 10s (Direita)"
+          title="Avançar 10s"
         >
           <FiChevronRight className="w-7 h-7" />
-          <span className="text-[9px] font-bold text-neutral-400 -mt-0.5">+30s</span>
+          <span className="text-[9px] font-bold text-neutral-400 -mt-0.5">+10s</span>
         </button>
 
         {/* Center OK Button */}
@@ -153,17 +153,19 @@ export const RemoteDpadView: React.FC = () => {
       {/* Volume Bar Controls */}
       <div className="flex items-center gap-6 bg-neutral-800/80 px-6 py-3 rounded-full border border-neutral-700/60">
         <button
-          onClick={() => handleVolumeDelta(-0.05)}
+          onClick={() => handleVolumeDelta(-0.01)}
           className="p-2 text-neutral-400 hover:text-white active:scale-90 transition-transform"
-          aria-label="Diminuir Volume"
+          aria-label="Diminuir Volume (1%)"
+          title="-1%"
         >
           <FiVolume1 className="w-6 h-6" />
         </button>
-        <span className="text-xs uppercase tracking-wider text-neutral-400 font-semibold">Volume</span>
+        <span className="text-xs uppercase tracking-wider text-neutral-400 font-semibold">Volume (1%)</span>
         <button
-          onClick={() => handleVolumeDelta(0.05)}
+          onClick={() => handleVolumeDelta(0.01)}
           className="p-2 text-neutral-400 hover:text-white active:scale-90 transition-transform"
-          aria-label="Aumentar Volume"
+          aria-label="Aumentar Volume (1%)"
+          title="+1%"
         >
           <FiVolume2 className="w-6 h-6" />
         </button>

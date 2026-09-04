@@ -4,6 +4,7 @@ import { spawn } from 'child_process';
 import { Router } from 'express';
 import { db } from '../db/connection';
 import { requireAuth } from '../middleware/auth';
+import { allowLocalOrAuth } from '../middleware/allowLocalOrAuth';
 import { getSettings } from '../services/settings';
 import { XtreamClient } from '../services/xtreamClient';
 import { refreshVodContent, processM3uVod } from '../services/vodProcessor';
@@ -415,7 +416,7 @@ vodRouter.get('/vod/categories', requireAuth, async (_req, res) => {
   }
 });
 
-vodRouter.get('/vod/duration', requireAuth, (req, res) => {
+vodRouter.get('/vod/duration', allowLocalOrAuth(), (req, res) => {
   let sourceUrl = req.query.url as string | undefined;
   const userAgentId = req.query.userAgentId as string | undefined;
   if (!sourceUrl) {

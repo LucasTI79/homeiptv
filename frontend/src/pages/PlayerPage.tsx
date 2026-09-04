@@ -25,6 +25,7 @@ import {
 } from '../services/db';
 import { getDownloadedFile } from '../services/opfsStorage';
 import { ensureBackendMediaAvailable } from '../services/localMediaSync';
+import { probeVodDuration } from '../api/vod';
 
 import { VIDEO_INTELLIGENCE_CONFIG, PLAYER_CONFIG } from '../constants';
 
@@ -193,6 +194,18 @@ export function PlayerPage() {
             return;
           }
           console.error('Native VOD play error', e);
+
+          // If playing local media and browser failed to decode native container, retry with explicit transcode
+          if (isLocalApiUrl && !streamUrlToPlay.includes('transcode=1')) {
+            const fallbackUrl = `${streamUrlToPlay}${streamUrlToPlay.includes('?') ? '&' : '?'}transcode=1`;
+            console.log('[PlayerPage] Retrying local media with transcode=1 fallback:', fallbackUrl);
+            video.src = fallbackUrl;
+            video.load();
+            Promise.resolve(video.play()).catch((fallbackErr) => {
+              console.error('[PlayerPage] Transcoding fallback play error:', fallbackErr);
+              setPlaybackError('Não foi possível reproduzir este formato de vídeo no navegador.');
+            });
+          }
         });
         return;
       }
@@ -382,9 +395,9 @@ export function PlayerPage() {
       return;
     }
     if (!videoRef.current) return;
-    const newTime = Math.max(0, Math.min(videoRef.current.duration || 0, videoRef.current.currentTime + deltaSeconds));
-    videoRef.current.currentTime = newTime;
-    setCurrentTime(newTime);
+    const maxDur = (duration && isFinite(duration) && duration > 0) ? duration : (videoRef.current.duration || 0);
+    const newTime = Math.max(0, Math.min(maxDur, (videoRef.current.currentTime || currentTime) + deltaSeconds));
+    seekToVideoTime(newTime);
   };
 
   const handleProgressBarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -393,8 +406,24 @@ export function PlayerPage() {
       seekToTime(newTime);
       return;
     }
+    seekToVideoTime(newTime);
+  };
+
+  const seekToVideoTime = (newTime: number) => {
+    if (!videoRef.current) return;
     setCurrentTime(newTime);
-    if (videoRef.current) {
+
+    const isLocal = selectedChannel?.url?.startsWith('/api/local-media');
+    const isContinuousStream = !isFinite(videoRef.current.duration) || videoRef.current.duration <= 0;
+
+    if (isLocal && isContinuousStream) {
+      const currentSrc = videoRef.current.src || selectedChannel?.url || '';
+      const baseUrl = currentSrc.replace(/[?&]seek=\d+/, '');
+      const sep = baseUrl.includes('?') ? '&' : '?';
+      videoRef.current.src = `${baseUrl}${sep}seek=${Math.floor(newTime)}`;
+      videoRef.current.load();
+      Promise.resolve(videoRef.current.play()).catch(() => {});
+    } else {
       videoRef.current.currentTime = newTime;
     }
   };
@@ -802,8 +831,17 @@ export function PlayerPage() {
 
   // Check for resume position when video metadata is loaded
   const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
-    const dur = e.currentTarget.duration || 0;
-    setDuration(dur);
+    let dur = e.currentTarget.duration || 0;
+    if (typeof dur === 'number' && !isNaN(dur) && isFinite(dur) && dur > 0) {
+      setDuration(dur);
+    } else if (selectedChannel?.isVod && selectedChannel.url) {
+      probeVodDuration(selectedChannel.url).then((probed) => {
+        if (probed && probed > 0) {
+          setDuration(probed);
+          dur = probed;
+        }
+      });
+    }
 
     if (selectedChannel?.isVod && !hasCheckedResumeRef.current) {
       hasCheckedResumeRef.current = true;
@@ -811,12 +849,12 @@ export function PlayerPage() {
       const saved = storedProgress[itemId];
 
       // If specified directly via initialTime (e.g. from Continue Watching click)
-      if (selectedChannel.initialTime && selectedChannel.initialTime > 5 && selectedChannel.initialTime < dur - 10) {
+      if (selectedChannel.initialTime && selectedChannel.initialTime > 5 && selectedChannel.initialTime < (dur || 999999) - 10) {
         if (videoRef.current) {
           videoRef.current.currentTime = selectedChannel.initialTime;
           setCurrentTime(selectedChannel.initialTime);
         }
-      } else if (saved && saved.currentTime > MIN_RESUME_THRESHOLD_SECONDS && saved.currentTime < dur - MAX_RESUME_THRESHOLD_BEFORE_END_SECONDS) {
+      } else if (saved && saved.currentTime > MIN_RESUME_THRESHOLD_SECONDS && saved.currentTime < (dur || 999999) - MAX_RESUME_THRESHOLD_BEFORE_END_SECONDS) {
         // Show resume prompt
         setResumePrompt({
           time: saved.currentTime,
@@ -1250,8 +1288,12 @@ export function PlayerPage() {
             onLoadedMetadata={handleLoadedMetadata}
             onDurationChange={(e) => {
               const dur = e.currentTarget.duration;
-              if (dur && !isNaN(dur) && isFinite(dur)) {
+              if (dur && !isNaN(dur) && isFinite(dur) && dur > 0) {
                 setDuration(dur);
+              } else if (selectedChannel?.isVod && selectedChannel.url && duration <= 0) {
+                probeVodDuration(selectedChannel.url).then((probed) => {
+                  if (probed && probed > 0) setDuration(probed);
+                });
               }
             }}
           />

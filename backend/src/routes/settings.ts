@@ -23,6 +23,14 @@ settingsRouter.post('/save/settings', requireAuth, async (req, res) => {
     const updatedSettings: Settings = { ...currentSettings };
 
     for (const key of Object.keys(req.body)) {
+      if (key === 'localMediaFolders') {
+        // localMediaFolders is managed via dedicated /api/local-media/folders endpoints.
+        // Don't let a generic saveSettings wipe out configured folders if empty or missing.
+        if (Array.isArray(req.body[key]) && req.body[key].length > 0) {
+          updatedSettings.localMediaFolders = req.body[key];
+        }
+        continue;
+      }
       if (!USER_SPECIFIC_KEYS.includes(key)) {
         (updatedSettings as unknown as Record<string, unknown>)[key] = req.body[key];
       } else {

@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { spawn } from 'child_process';
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { allowLocalOrAuth } from '../middleware/allowLocalOrAuth';
@@ -225,44 +226,139 @@ localMediaRouter.get('/local-media/stream', streamAuth, (req, res) => {
     const stat = fs.statSync(targetFilePath);
     const fileSize = stat.size;
     const ext = path.extname(targetFilePath).replace('.', '').toLowerCase();
-    const contentType = MIME_TYPES[ext] || 'video/mp4';
+    const forceTranscode = req.query.transcode === '1' || req.query.transcode === 'true';
+    const NATIVE_VIDEO_EXTS = new Set(['mp4', 'm4v', 'webm']);
+    const isNative = NATIVE_VIDEO_EXTS.has(ext) && !forceTranscode;
 
-    const range = req.headers.range;
+    if (req.method === 'HEAD') {
+      const contentType = isNative ? (MIME_TYPES[ext] || 'video/mp4') : 'video/mp4';
+      res.writeHead(200, {
+        'Content-Type': contentType,
+        'Accept-Ranges': isNative ? 'bytes' : 'none',
+        'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Range',
+      });
+      return res.end();
+    }
 
-    if (range) {
-      // Parse Range Header
-      const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    if (isNative) {
+      const contentType = MIME_TYPES[ext] || 'video/mp4';
+      const range = req.headers.range;
 
-      if (start >= fileSize || end >= fileSize) {
-        res.status(416).setHeader('Content-Range', `bytes */${fileSize}`);
-        return res.end();
+      if (range) {
+        // Parse Range Header
+        const parts = range.replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+        if (start >= fileSize || end >= fileSize) {
+          res.status(416).setHeader('Content-Range', `bytes */${fileSize}`);
+          return res.end();
+        }
+
+        const chunkSize = end - start + 1;
+        const fileStream = fs.createReadStream(targetFilePath, { start, end });
+
+        res.writeHead(206, {
+          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': chunkSize,
+          'Content-Type': contentType,
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Range',
+        });
+
+        fileStream.pipe(res);
+      } else {
+        res.writeHead(200, {
+          'Content-Length': fileSize,
+          'Content-Type': contentType,
+          'Accept-Ranges': 'bytes',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Range',
+        });
+
+        fs.createReadStream(targetFilePath).pipe(res);
+      }
+    } else {
+      // Transcode sob demanda para fMP4 (fragmented MP4) com codec universal H.264 + AAC
+      // Compatível com todos os navegadores modernos (Chrome, Firefox, Safari, Edge) e Chromecast
+      const seekSeconds = Math.max(0, parseFloat((req.query.seek || req.query.t || req.query.start || '0') as string) || 0);
+
+      res.writeHead(200, {
+        'Content-Type': 'video/mp4',
+        'Accept-Ranges': 'none',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Range',
+      });
+
+      const ffmpegArgs: string[] = [
+        '-hide_banner',
+        '-loglevel', 'warning',
+      ];
+
+      if (seekSeconds > 0) {
+        ffmpegArgs.push('-ss', seekSeconds.toString());
       }
 
-      const chunkSize = end - start + 1;
-      const fileStream = fs.createReadStream(targetFilePath, { start, end });
+      ffmpegArgs.push(
+        '-i', targetFilePath,
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-crf', '23',
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+        '-f', 'mp4',
+        'pipe:1'
+      );
 
-      res.writeHead(206, {
-        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-        'Accept-Ranges': 'bytes',
-        'Content-Length': chunkSize,
-        'Content-Type': contentType,
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Range',
+      console.log(`[LOCAL_MEDIA_STREAM] Transcoding "${path.basename(targetFilePath)}" to fMP4 (seek: ${seekSeconds}s)`);
+      const ffmpegProc = spawn('ffmpeg', ffmpegArgs);
+
+      ffmpegProc.stdout.pipe(res);
+
+      ffmpegProc.stderr.on('data', (chunk) => {
+        const msg = chunk.toString().trim();
+        if (msg) {
+          console.warn(`[LOCAL_MEDIA_STREAM_FFMPEG] ${msg}`);
+        }
       });
 
-      fileStream.pipe(res);
-    } else {
-      res.writeHead(200, {
-        'Content-Length': fileSize,
-        'Content-Type': contentType,
-        'Accept-Ranges': 'bytes',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Range',
-      });
+      let isCleanedUp = false;
+      const cleanup = () => {
+        if (isCleanedUp) return;
+        isCleanedUp = true;
+        try {
+          ffmpegProc.stdout.unpipe(res);
+          ffmpegProc.stdout.destroy();
+          ffmpegProc.kill('SIGTERM');
+          setTimeout(() => {
+            if (!ffmpegProc.killed) {
+              try {
+                ffmpegProc.kill('SIGKILL');
+              } catch {
+                // ignore
+              }
+            }
+          }, 1000);
+        } catch {
+          // ignore
+        }
+      };
 
-      fs.createReadStream(targetFilePath).pipe(res);
+      req.on('close', cleanup);
+      req.on('error', cleanup);
+      res.on('close', cleanup);
+      res.on('finish', cleanup);
+      res.on('error', cleanup);
+      ffmpegProc.on('close', () => {
+        isCleanedUp = true;
+      });
     }
   } catch (err) {
     console.error('[LOCAL_MEDIA_STREAM] Error streaming file:', err);

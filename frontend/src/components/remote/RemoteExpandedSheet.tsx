@@ -123,7 +123,12 @@ export const RemoteExpandedSheet: React.FC<RemoteExpandedSheetProps> = ({ isOpen
               <FiTv className="w-4 h-4" />
               <span>Transmitindo na TV</span>
             </div>
-            {remoteNowPlaying?.isOffline ? (
+            {remoteNowPlaying?.isLocal ? (
+              <span className="text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-emerald-600/90 text-white flex items-center gap-1 shadow-sm">
+                <FiHardDrive className="w-3 h-3" />
+                <span>Mídia Local PC</span>
+              </span>
+            ) : remoteNowPlaying?.isOffline ? (
               <span className="text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-emerald-600/90 text-white flex items-center gap-1 shadow-sm">
                 <FiHardDrive className="w-3 h-3" />
                 <span>Offline Local</span>

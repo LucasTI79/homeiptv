@@ -160,6 +160,7 @@ export function VodPage() {
           vodType: 'movie',
           logo: item.logo,
           originalUrl: item.url,
+          isLocal: Boolean(item.isLocal || item.url?.startsWith('/api/local-media')),
         });
         navigate('/player');
       }
@@ -212,6 +213,7 @@ export function VodPage() {
         episodes: options.episodes,
       },
       nextEpisode: options.nextEpisode,
+      isLocal: Boolean(series.isLocal || options.url?.startsWith('/api/local-media')),
     });
     navigate('/player');
   };
@@ -294,6 +296,7 @@ export function VodPage() {
         episodes,
       } : undefined,
       nextEpisode,
+      isLocal: Boolean(cw.url?.startsWith('/api/local-media')),
     });
     navigate('/player');
   };

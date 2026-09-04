@@ -31,6 +31,7 @@ export interface SelectedChannel {
   nextEpisode?: NextEpisodeInfo;
   offlineFileName?: string;
   isOffline?: boolean;
+  isLocal?: boolean;
 }
 
 // Placeholder UI-only store (replaces state.js's globals from the old app).

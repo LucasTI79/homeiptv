@@ -87,6 +87,12 @@ export function PlayerPage() {
   const [isOfflineMedia, setIsOfflineMedia] = useState(false);
   const [isPairingModalOpen, setIsPairingModalOpen] = useState(false);
 
+  const isLocalMedia = Boolean(
+    selectedChannel?.isLocal ||
+    selectedChannel?.url?.startsWith('/api/local-media') ||
+    selectedChannel?.originalUrl?.startsWith('/api/local-media')
+  );
+
   // Resume prompt state
   const [resumePrompt, setResumePrompt] = useState<{ time: number; formatted: string } | null>(null);
   const hasCheckedResumeRef = useRef<boolean>(false);
@@ -651,6 +657,7 @@ export function PlayerPage() {
       volume: effectiveVolume,
       isMuted: effectiveIsMuted,
       isOffline: isOfflineMedia,
+      isLocal: isLocalMedia,
       isCasting,
       hasPrevEpisode,
       hasNextEpisode,
@@ -673,6 +680,7 @@ export function PlayerPage() {
     volume,
     isMuted,
     isOfflineMedia,
+    isLocalMedia,
     hasPrevEpisode,
     hasNextEpisode,
     activeIntroSegment,
@@ -1160,9 +1168,26 @@ export function PlayerPage() {
           <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
             <h2 className="text-white font-bold text-xl drop-shadow-md truncate">{selectedChannel.name}</h2>
             {isCasting ? (
-              <span className="bg-indigo-600/90 text-white text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow shrink-0">
-                <FiTv className="w-3.5 h-3.5" />
-                <span>Na TV (Online)</span>
+              isLocalMedia ? (
+                <span className="bg-emerald-600/90 text-white text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow shrink-0">
+                  <FiHardDrive className="w-3.5 h-3.5" />
+                  <span>Na TV (Mídia Local)</span>
+                </span>
+              ) : isOfflineMedia ? (
+                <span className="bg-emerald-600/90 text-white text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow shrink-0">
+                  <FiHardDrive className="w-3.5 h-3.5" />
+                  <span>Na TV (Offline)</span>
+                </span>
+              ) : (
+                <span className="bg-indigo-600/90 text-white text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow shrink-0">
+                  <FiTv className="w-3.5 h-3.5" />
+                  <span>Na TV (Online)</span>
+                </span>
+              )
+            ) : isLocalMedia ? (
+              <span className="bg-emerald-600/90 text-white text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow shrink-0">
+                <FiHardDrive className="w-3.5 h-3.5" />
+                <span>Mídia Local PC</span>
               </span>
             ) : isOfflineMedia ? (
               <span className="bg-emerald-600/90 text-white text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow shrink-0">
@@ -1237,9 +1262,19 @@ export function PlayerPage() {
             <FiCast className="w-16 h-16 text-blue-500 mb-4 animate-pulse" />
             <h2 className="text-2xl font-bold">Casting to Screen</h2>
             <p className="text-gray-400 mt-2">{selectedChannel.name}</p>
-            <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 mt-2.5 font-medium">
-              <FiTv className="w-3.5 h-3.5" /> Transmitindo na TV (Streaming Online via Provedor)
-            </span>
+            {isLocalMedia ? (
+              <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 mt-2.5 font-medium">
+                <FiHardDrive className="w-3.5 h-3.5" /> Transmitindo na TV (Mídia Local do PC)
+              </span>
+            ) : isOfflineMedia ? (
+              <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 mt-2.5 font-medium">
+                <FiHardDrive className="w-3.5 h-3.5" /> Transmitindo na TV (Download Offline Local)
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 mt-2.5 font-medium">
+                <FiTv className="w-3.5 h-3.5" /> Transmitindo na TV (Streaming Online via Provedor)
+              </span>
+            )}
             {selectedChannel.isVod && (
               <div className="flex items-center gap-2 mt-5 flex-wrap justify-center">
                 <button

@@ -65,7 +65,11 @@ export const RemoteNowPlayingBar: React.FC = () => {
             <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400">
               Na TV
             </span>
-            {remoteNowPlaying?.isOffline ? (
+            {remoteNowPlaying?.isLocal ? (
+              <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-emerald-600/90 text-white flex items-center gap-1 shadow-xs">
+                <FiHardDrive className="w-2.5 h-2.5" /> Mídia Local PC
+              </span>
+            ) : remoteNowPlaying?.isOffline ? (
               <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-emerald-600/90 text-white flex items-center gap-1 shadow-xs">
                 <FiHardDrive className="w-2.5 h-2.5" /> Offline Local
               </span>

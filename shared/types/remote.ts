@@ -11,6 +11,7 @@ export interface RemoteNowPlayingState {
   volume: number;
   isMuted: boolean;
   isOffline?: boolean;
+  isLocal?: boolean;
   isCasting?: boolean;
   seriesContext?: {
     seriesId: string;

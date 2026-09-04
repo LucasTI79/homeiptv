@@ -351,23 +351,38 @@ O ViniPlay organiza e sincroniza automaticamente seus filmes e séries a partir 
 
 1. FILMES:
    - Coloque seus filmes na pasta "Filmes/<Categoria>/".
-   - Exemplo:
-     Filmes/Ação/John Wick (2014).mp4
-     Filmes/Ficção Científica/Matrix (1999).mkv
-   - A subpasta (ex: Ação, Drama, Comédia) vira automaticamente a Categoria no catálogo VOD.
-   - O ano entre parênteses (ex: (2020)) é identificado automaticamente.
-   - Opcional: Se você colocar uma imagem "poster.jpg" na mesma pasta, ela será usada como a capa do filme!
+   - A subpasta (ex: Ação, Ficção Científica, Comédia, Barbie) vira automaticamente a Categoria no catálogo VOD.
+   - O ano entre parênteses (ex: (2014)) é identificado automaticamente.
+
+   COMO ADICIONAR CAPAS/PÔSTERES NOS FILMES:
+   O sistema aceita duas formas para você escolher a mais conveniente:
+
+   A) MESMO NOME DO FILME (Mais rápido para vários filmes na mesma pasta):
+      Basta colocar a imagem (.jpg, .png, .webp) com o EXATO MESMO NOME do arquivo de vídeo.
+      Exemplo:
+        Filmes/Barbie/Barbie Agentes Secretas (2016).mp4
+        Filmes/Barbie/Barbie Agentes Secretas (2016).jpg   <-- Pôster deste filme!
+        Filmes/Barbie/Barbie A Canção de Natal (2008).avi
+        Filmes/Barbie/Barbie A Canção de Natal (2008).png  <-- Pôster deste filme!
+
+   B) PASTA EXCLUSIVA PARA O FILME (Padrão Plex / Jellyfin):
+      Coloque o filme dentro de sua própria subpasta e salve a imagem como "poster.jpg" ou "cover.jpg":
+      Exemplo:
+        Filmes/Ação/John Wick (2014)/
+          ├── John Wick (2014).mp4
+          └── poster.jpg   <-- Pôster deste filme!
 
 2. SÉRIES E ANIMES:
    - Coloque na pasta "Series/<Categoria>/<Nome da Série>/<Temporada>/".
    - Exemplo:
-     Series/Ficção/Stranger Things/Season 01/Stranger Things - S01E01.mp4
-     Series/Ficção/Stranger Things/Season 01/Stranger Things - S01E02.mp4
-     Series/Animes/Attack on Titan/Season 01/Attack on Titan - S01E01.mkv
+       Series/Ficção/Stranger Things/Season 01/Stranger Things - S01E01.mp4
+       Series/Ficção/Stranger Things/Season 01/Stranger Things - S01E02.mp4
+       Series/Animes/Attack on Titan/Season 01/Attack on Titan - S01E01.mkv
    - Use a sigla S01E01 (ou 1x01) para que o sistema identifique os episódios em ordem.
-   - Opcional: Uma imagem "poster.jpg" dentro da pasta da série será a capa oficial da série no catálogo!
+   - Pôster da série: Salve uma imagem "poster.jpg" ou "cover.jpg" dentro da pasta da série ou da temporada.
 
-Extensões suportadas: .mp4, .mkv, .webm, .avi, .mov, .m4v, .ts
+Formatos de vídeo suportados: .mp4, .mkv, .webm, .avi, .mov, .m4v, .ts, .wmv
+Formatos de imagem para pôster: .jpg, .jpeg, .png, .webp
 `;
 
     fs.writeFileSync(readmePath, readmeContent, 'utf-8');

@@ -42,6 +42,7 @@ describe('localMediaScanner', () => {
     const movieDir = path.join(tempDir, 'Filmes', 'Ficção Científica');
     fs.mkdirSync(movieDir, { recursive: true });
     fs.writeFileSync(path.join(movieDir, 'Matrix (1999).mp4'), 'dummy-video-data');
+    fs.writeFileSync(path.join(movieDir, 'Matrix (1999).jpg'), 'dummy-image-data');
 
     // 2. Setup mock series: Series/Animes/Attack on Titan/Season 01/Attack on Titan - S01E02.mkv
     const seriesDir = path.join(tempDir, 'Series', 'Animes', 'Attack on Titan', 'Season 01');
@@ -73,6 +74,7 @@ describe('localMediaScanner', () => {
     expect(scanResult.movies[0].name).toContain('Matrix');
     expect(scanResult.movies[0].year).toBe(1999);
     expect(scanResult.movies[0].category).toBe('Ficção Científica');
+    expect(scanResult.movies[0].logo).toContain('/api/local-media/poster');
 
     expect(scanResult.series.length).toBe(1);
     expect(scanResult.series[0].name).toBe('Attack on Titan');

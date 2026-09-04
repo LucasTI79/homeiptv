@@ -201,13 +201,16 @@ export const LocalFoldersTab: React.FC = () => {
                   <div>📁 Filmes/</div>
                   <div className="pl-4">📁 Ação/</div>
                   <div className="pl-8 text-emerald-400">🎬 John Wick (2014).mp4</div>
-                  <div className="pl-4">📁 Ficção Científica/</div>
-                  <div className="pl-8 text-emerald-400">🎬 Matrix (1999).mkv</div>
-                  <div className="pl-8 text-neutral-500">🖼️ poster.jpg (capa opcional)</div>
+                  <div className="pl-8 text-amber-300">🖼️ John Wick (2014).jpg (capa do filme)</div>
+                  <div className="pl-8 text-emerald-400">🎬 Gladiador (2000).mkv</div>
+                  <div className="pl-8 text-amber-300">🖼️ Gladiador (2000).jpg (capa do filme)</div>
+                  <div className="pl-4">📁 Matrix (1999)/ (pasta individual opcional)</div>
+                  <div className="pl-8 text-emerald-400">🎬 Matrix (1999).mp4</div>
+                  <div className="pl-8 text-neutral-500">🖼️ poster.jpg</div>
                 </div>
                 <p className="text-neutral-400 text-xs">
-                  • O ano entre parênteses <code className="text-primary-300">(2024)</code> é identificado automaticamente.
-                  <br />• Imagens <code className="text-primary-300">poster.jpg</code> viram capas no catálogo!
+                  • <b>Capa individual</b>: basta salvar a imagem com o <b>mesmo nome do filme</b> (ex: <code className="text-primary-300">Filme.jpg</code> ao lado de <code className="text-primary-300">Filme.mp4</code>)!
+                  <br />• O ano entre parênteses <code className="text-primary-300">(2024)</code> é identificado automaticamente.
                 </p>
               </div>
 

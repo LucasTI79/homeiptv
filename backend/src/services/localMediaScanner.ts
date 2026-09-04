@@ -99,6 +99,40 @@ function extractYear(text: string): number | null {
   return null;
 }
 
+function findPosterForMovie(videoFilePath: string, _rootFolder: string): string | null {
+  const dirPath = path.dirname(videoFilePath);
+  const baseWithoutExt = path.basename(videoFilePath, path.extname(videoFilePath));
+
+  // 1. Same base name as the movie file (e.g. "Matrix (1999).mp4" -> "Matrix (1999).jpg")
+  for (const ext of IMAGE_EXTENSIONS) {
+    const candidate = path.join(dirPath, `${baseWithoutExt}${ext}`);
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  // 2. If movie is in its own dedicated subfolder, look for poster.jpg / cover.jpg
+  try {
+    const entries = fs.readdirSync(dirPath);
+    const videoCount = entries.filter((e) => VIDEO_EXTENSIONS.has(path.extname(e).toLowerCase())).length;
+    if (videoCount === 1) {
+      for (const entry of entries) {
+        const ext = path.extname(entry).toLowerCase();
+        if (IMAGE_EXTENSIONS.has(ext)) {
+          const base = path.basename(entry, ext).toLowerCase();
+          if (POSTER_NAMES.has(base)) {
+            return path.join(dirPath, entry);
+          }
+        }
+      }
+    }
+  } catch {
+    // Ignore read errors
+  }
+
+  return null;
+}
+
 function findPosterInDir(dirPath: string): string | null {
   try {
     if (!fs.existsSync(dirPath)) return null;
@@ -533,7 +567,7 @@ export function scanFolder(folder: LocalMediaFolder): { movies: LocalMovie[]; se
         const year = extractYear(rawTitle);
         const name = cleanTitle(rawTitle) || fileName;
         const category = determineCategory(file, folder.path, folderCategory);
-        const posterFile = findPosterInDir(path.dirname(file));
+        const posterFile = findPosterForMovie(file, folder.path);
         const posterUrl = posterFile ? `/api/local-media/poster?file=${encodeURIComponent(posterFile)}` : null;
 
         const movieId = `local_movie_${folder.id}_${generateHash(relative)}`;

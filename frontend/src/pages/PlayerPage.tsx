@@ -8,7 +8,7 @@ import { GuideTour } from '../components/ui/GuideTour';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useCast } from '../components/cast/CastProvider';
 import { usePlaybackStore } from '../store/playbackStore';
-import { FiCast, FiRotateCcw, FiRotateCw, FiPlay, FiX, FiHardDrive, FiSmartphone } from 'react-icons/fi';
+import { FiCast, FiRotateCcw, FiRotateCw, FiPlay, FiX, FiHardDrive, FiSmartphone, FiGlobe, FiTv } from 'react-icons/fi';
 import { RemotePairingModal } from '../components/remote/RemotePairingModal';
 import { useRemoteStore } from '../store/remoteStore';
 import { SkipIntroOverlay } from '../components/vod/SkipIntroOverlay';
@@ -910,12 +910,22 @@ export function PlayerPage() {
       
       <div className="w-full max-w-5xl bg-gray-900 rounded-lg overflow-hidden shadow-2xl relative group">
         <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 to-transparent z-10 opacity-0 group-hover:opacity-100 transition-opacity flex justify-between items-center">
-          <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
             <h2 className="text-white font-bold text-xl drop-shadow-md truncate">{selectedChannel.name}</h2>
-            {isOfflineMedia && (
+            {isCasting ? (
+              <span className="bg-indigo-600/90 text-white text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow shrink-0">
+                <FiTv className="w-3.5 h-3.5" />
+                <span>Na TV (Online)</span>
+              </span>
+            ) : isOfflineMedia ? (
               <span className="bg-emerald-600/90 text-white text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow shrink-0">
                 <FiHardDrive className="w-3.5 h-3.5" />
                 <span>Offline Local</span>
+              </span>
+            ) : (
+              <span className="bg-blue-600/80 text-blue-100 text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow shrink-0">
+                <FiGlobe className="w-3.5 h-3.5" />
+                <span>Streaming Online</span>
               </span>
             )}
           </div>
@@ -938,7 +948,7 @@ export function PlayerPage() {
               !
             </div>
             <div className="space-y-1 max-w-md">
-              <h3 className="text-lg font-bold text-white">Stream Unavailable</h3>
+              <h3 className="text-lg font-bold text-white">Stream Playback Failed</h3>
               <p className="text-xs text-gray-400">
                 {playbackError}. This usually occurs when the channel is temporarily offline at your provider or the stream format is unsupported.
               </p>
@@ -976,25 +986,46 @@ export function PlayerPage() {
         )}
 
         {isCasting ? (
-          <div className="w-full h-auto aspect-video bg-black flex flex-col items-center justify-center text-white">
+          <div className="w-full aspect-video bg-gray-950 flex flex-col items-center justify-center text-white p-6">
             <FiCast className="w-16 h-16 text-blue-500 mb-4 animate-pulse" />
             <h2 className="text-2xl font-bold">Casting to Screen</h2>
             <p className="text-gray-400 mt-2">{selectedChannel.name}</p>
+            <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 mt-2.5 font-medium">
+              <FiTv className="w-3.5 h-3.5" /> Transmitindo na TV (Streaming Online via Provedor)
+            </span>
             {selectedChannel.isVod && (
-              <div className="flex items-center gap-4 mt-4">
+              <div className="flex items-center gap-2 mt-5 flex-wrap justify-center">
                 <button
                   type="button"
                   onClick={() => handleSeek(-10)}
-                  className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded flex items-center gap-1 text-sm"
+                  className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg flex items-center gap-1 text-xs font-semibold"
+                  title="Voltar 10 segundos"
                 >
-                  <FiRotateCcw className="w-4 h-4" /> -10s
+                  <FiRotateCcw className="w-3.5 h-3.5" /> -10s
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleSeek(30)}
-                  className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded flex items-center gap-1 text-sm"
+                  onClick={() => handleSeek(-5)}
+                  className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg flex items-center gap-1 text-xs font-semibold"
+                  title="Voltar 5 segundos"
                 >
-                  <FiRotateCw className="w-4 h-4" /> +30s
+                  <FiRotateCcw className="w-3.5 h-3.5" /> -5s
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSeek(5)}
+                  className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg flex items-center gap-1 text-xs font-semibold"
+                  title="Avançar 5 segundos"
+                >
+                  <FiRotateCw className="w-3.5 h-3.5" /> +5s
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSeek(10)}
+                  className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg flex items-center gap-1 text-xs font-semibold"
+                  title="Avançar 10 segundos"
+                >
+                  <FiRotateCw className="w-3.5 h-3.5" /> +10s
                 </button>
               </div>
             )}

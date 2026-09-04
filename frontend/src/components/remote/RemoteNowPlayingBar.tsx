@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FiTv, FiPlay, FiPause, FiWifiOff, FiHardDrive } from 'react-icons/fi';
+import { FiTv, FiPlay, FiPause, FiWifiOff, FiHardDrive, FiGlobe } from 'react-icons/fi';
 import { useRemoteStore } from '../../store/remoteStore';
 import { RemoteExpandedSheet } from './RemoteExpandedSheet';
 
@@ -33,18 +33,24 @@ export const RemoteNowPlayingBar: React.FC = () => {
   return (
     <>
       <div
-        onClick={() => setIsSheetOpen(true)}
-        className="fixed bottom-3 left-3 right-3 z-40 max-w-lg mx-auto bg-neutral-900/90 hover:bg-neutral-900 backdrop-blur-xl border border-neutral-700/70 rounded-2xl shadow-2xl p-2.5 flex items-center gap-3 cursor-pointer select-none transition-all active:scale-99 text-white group overflow-hidden"
         role="button"
         tabIndex={0}
         aria-label="Abrir controles do controle remoto"
+        onClick={() => setIsSheetOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setIsSheetOpen(true);
+          }
+        }}
+        className="fixed bottom-3 left-3 right-3 sm:left-auto sm:right-6 sm:w-96 bg-neutral-900/95 backdrop-blur-md border border-neutral-800 rounded-2xl p-3 shadow-2xl z-40 flex items-center gap-3 cursor-pointer hover:border-neutral-700 transition-all active:scale-[0.99]"
       >
-        {/* Thumbnail / TV icon */}
-        <div className="w-11 h-11 rounded-xl bg-neutral-800 flex items-center justify-center overflow-hidden flex-shrink-0 border border-neutral-700">
+        {/* Thumbnail / Channel Icon */}
+        <div className="w-12 h-12 rounded-xl bg-neutral-800 flex items-center justify-center overflow-hidden flex-shrink-0 border border-neutral-700/50">
           {remoteNowPlaying?.logo ? (
             <img
               src={remoteNowPlaying.logo}
-              alt=""
+              alt={remoteNowPlaying.title}
               className="w-full h-full object-cover"
             />
           ) : (
@@ -54,14 +60,22 @@ export const RemoteNowPlayingBar: React.FC = () => {
 
         {/* Title & Info */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400">
               Na TV
             </span>
-            {remoteNowPlaying?.isOffline && (
+            {remoteNowPlaying?.isOffline ? (
               <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-emerald-600/90 text-white flex items-center gap-1 shadow-xs">
-                <FiHardDrive className="w-2.5 h-2.5" /> Offline
+                <FiHardDrive className="w-2.5 h-2.5" /> Offline Local
+              </span>
+            ) : remoteNowPlaying?.isCasting ? (
+              <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-indigo-600/90 text-white flex items-center gap-1 shadow-xs">
+                <FiTv className="w-2.5 h-2.5" /> Na TV (Online)
+              </span>
+            ) : (
+              <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-blue-600/80 text-blue-100 flex items-center gap-1 shadow-xs">
+                <FiGlobe className="w-2.5 h-2.5" /> Online Playlist
               </span>
             )}
             {connectionStatus === 'reconnecting' && (

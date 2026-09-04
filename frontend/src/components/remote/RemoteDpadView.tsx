@@ -18,6 +18,13 @@ export const RemoteDpadView: React.FC = () => {
   const { sendCommand } = useRemoteStore();
   const [inputText, setInputText] = useState('');
 
+  const remoteNowPlaying = useRemoteStore((s) => s.remoteNowPlaying);
+  const volumeDisplay = remoteNowPlaying?.isMuted
+    ? 'Mudo'
+    : remoteNowPlaying?.volume !== undefined
+      ? `${Math.round(remoteNowPlaying.volume * 100)}%`
+      : '--';
+
   const triggerHaptic = () => {
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
       navigator.vibrate(20);
@@ -26,7 +33,19 @@ export const RemoteDpadView: React.FC = () => {
 
   const handleDpadPress = (key: RemoteDpadKey) => {
     triggerHaptic();
-    sendCommand({ type: 'COMMAND_DPAD', payload: { key } });
+    if (key === 'up') {
+      sendCommand({ type: 'COMMAND_VOLUME', payload: { delta: 0.01 } });
+    } else if (key === 'down') {
+      sendCommand({ type: 'COMMAND_VOLUME', payload: { delta: -0.01 } });
+    } else if (key === 'left') {
+      sendCommand({ type: 'COMMAND_SEEK', payload: { deltaSeconds: -10 } });
+    } else if (key === 'right') {
+      sendCommand({ type: 'COMMAND_SEEK', payload: { deltaSeconds: 10 } });
+    } else if (key === 'select') {
+      sendCommand({ type: 'COMMAND_PLAY_PAUSE' });
+    } else {
+      sendCommand({ type: 'COMMAND_DPAD', payload: { key } });
+    }
   };
 
   const handleVolumeDelta = (delta: number) => {
@@ -97,9 +116,9 @@ export const RemoteDpadView: React.FC = () => {
         {/* Up - Vol + */}
         <button
           onClick={() => handleDpadPress('up')}
-          className="absolute top-2 left-1/2 -translate-x-1/2 w-20 h-16 flex flex-col items-center justify-center text-neutral-300 hover:text-white active:scale-90 transition-transform"
+          className="absolute top-2 left-1/2 -translate-x-1/2 w-20 h-16 flex flex-col items-center justify-center text-neutral-300 hover:text-white active:scale-90 transition-transform z-10"
           aria-label="Aumentar Volume (Cima)"
-          title="Aumentar Volume"
+          title="Aumentar Volume (+1%)"
         >
           <FiChevronUp className="w-7 h-7" />
           <span className="text-[9px] font-bold uppercase tracking-wider text-neutral-400 -mt-1">Vol +</span>
@@ -108,9 +127,9 @@ export const RemoteDpadView: React.FC = () => {
         {/* Down - Vol - */}
         <button
           onClick={() => handleDpadPress('down')}
-          className="absolute bottom-2 left-1/2 -translate-x-1/2 w-20 h-16 flex flex-col items-center justify-center text-neutral-300 hover:text-white active:scale-90 transition-transform"
+          className="absolute bottom-2 left-1/2 -translate-x-1/2 w-20 h-16 flex flex-col items-center justify-center text-neutral-300 hover:text-white active:scale-90 transition-transform z-10"
           aria-label="Diminuir Volume (Baixo)"
-          title="Diminuir Volume"
+          title="Diminuir Volume (-1%)"
         >
           <span className="text-[9px] font-bold uppercase tracking-wider text-neutral-400 -mb-1">Vol -</span>
           <FiChevronDown className="w-7 h-7" />
@@ -119,7 +138,7 @@ export const RemoteDpadView: React.FC = () => {
         {/* Left - Rewind 10s */}
         <button
           onClick={() => handleDpadPress('left')}
-          className="absolute left-2 top-1/2 -translate-y-1/2 w-16 h-20 flex flex-col items-center justify-center text-neutral-300 hover:text-white active:scale-90 transition-transform"
+          className="absolute left-2 top-1/2 -translate-y-1/2 w-16 h-20 flex flex-col items-center justify-center text-neutral-300 hover:text-white active:scale-90 transition-transform z-10"
           aria-label="Voltar 10s (Esquerda)"
           title="Voltar 10s"
         >
@@ -130,7 +149,7 @@ export const RemoteDpadView: React.FC = () => {
         {/* Right - Forward 10s */}
         <button
           onClick={() => handleDpadPress('right')}
-          className="absolute right-2 top-1/2 -translate-y-1/2 w-16 h-20 flex flex-col items-center justify-center text-neutral-300 hover:text-white active:scale-90 transition-transform"
+          className="absolute right-2 top-1/2 -translate-y-1/2 w-16 h-20 flex flex-col items-center justify-center text-neutral-300 hover:text-white active:scale-90 transition-transform z-10"
           aria-label="Avançar 10s (Direita)"
           title="Avançar 10s"
         >
@@ -141,7 +160,7 @@ export const RemoteDpadView: React.FC = () => {
         {/* Center OK Button */}
         <button
           onClick={() => handleDpadPress('select')}
-          className="w-24 h-24 rounded-full bg-gradient-to-br from-primary-600 to-primary-700 hover:from-primary-500 hover:to-primary-600 active:scale-95 shadow-lg flex flex-col items-center justify-center text-white transition-transform"
+          className="w-24 h-24 rounded-full bg-gradient-to-br from-primary-600 to-primary-700 hover:from-primary-500 hover:to-primary-600 active:scale-95 shadow-lg flex flex-col items-center justify-center text-white transition-transform z-10"
           aria-label="OK / Play / Pause"
           title="Play / Pause / OK"
         >
@@ -151,7 +170,7 @@ export const RemoteDpadView: React.FC = () => {
       </div>
 
       {/* Volume Bar Controls */}
-      <div className="flex items-center gap-6 bg-neutral-800/80 px-6 py-3 rounded-full border border-neutral-700/60">
+      <div className="flex items-center gap-4 bg-neutral-800/80 px-5 py-2.5 rounded-full border border-neutral-700/60 shadow-lg">
         <button
           onClick={() => handleVolumeDelta(-0.01)}
           className="p-2 text-neutral-400 hover:text-white active:scale-90 transition-transform"
@@ -160,7 +179,9 @@ export const RemoteDpadView: React.FC = () => {
         >
           <FiVolume1 className="w-6 h-6" />
         </button>
-        <span className="text-xs uppercase tracking-wider text-neutral-400 font-semibold">Volume (1%)</span>
+        <span className="text-xs uppercase tracking-wider text-neutral-300 font-bold min-w-[5.5rem] text-center">
+          Vol: {volumeDisplay}
+        </span>
         <button
           onClick={() => handleVolumeDelta(0.01)}
           className="p-2 text-neutral-400 hover:text-white active:scale-90 transition-transform"

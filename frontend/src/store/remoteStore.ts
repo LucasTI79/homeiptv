@@ -99,11 +99,48 @@ export const useRemoteStore = create<RemoteStoreState>((set, get) => {
           });
         } else if (message.type === 'SESSION_PAIRED') {
           set({ clientCount: message.payload.clientCount });
+          // If host, immediately push userContext and nowPlaying to connected client
+          if (role === 'host') {
+            const pb = usePlaybackStore.getState();
+            get().syncHostUserContext({
+              favorites: pb.favorites,
+              watchedSummary: pb.watchedSummary,
+              progress: pb.progress,
+            });
+            const np = get().remoteNowPlaying;
+            if (np) {
+              get().syncHostPlayback(np);
+            }
+          }
         } else if (message.type === 'HOST_DISCONNECTED') {
           set({
             remoteNowPlaying: null,
             connectionStatus: 'reconnecting',
           });
+        }
+
+        // Global host handling: answers sync or updates even if not on /player
+        if (role === 'host') {
+          if (message.type === 'REQUEST_SYNC') {
+            const pb = usePlaybackStore.getState();
+            get().syncHostUserContext({
+              favorites: pb.favorites,
+              watchedSummary: pb.watchedSummary,
+              progress: pb.progress,
+            });
+            const np = get().remoteNowPlaying;
+            if (np) {
+              get().syncHostPlayback(np);
+            }
+          } else if (message.type === 'COMMAND_TOGGLE_FAVORITE') {
+            usePlaybackStore.getState().toggleFavorite(message.payload.id);
+            const pb = usePlaybackStore.getState();
+            get().syncHostUserContext({
+              favorites: pb.favorites,
+              watchedSummary: pb.watchedSummary,
+              progress: pb.progress,
+            });
+          }
         }
 
         // If host received a command, notify listener
@@ -173,6 +210,10 @@ export const useRemoteStore = create<RemoteStoreState>((set, get) => {
         if (!res.ok) throw new Error('Failed to create remote session');
         const data = await res.json();
         set({ pinCode: data.pinCode, sessionId: data.sessionId, role: 'host' });
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ role: 'host', sessionId: data.sessionId, pin: data.pinCode })
+        );
         initSocket(data.sessionId, 'host');
         return { sessionId: data.sessionId, pinCode: data.pinCode };
       } catch (err) {
@@ -184,7 +225,7 @@ export const useRemoteStore = create<RemoteStoreState>((set, get) => {
     connectAsClient: async (sessionId: string, pin?: string) => {
       try {
         set({ role: 'client', sessionId, pinCode: pin || null });
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ sessionId, pin }));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ role: 'client', sessionId, pin }));
         initSocket(sessionId, 'client');
       } catch (err) {
         console.error('[remoteStore] Failed to connect as client:', err);
@@ -259,7 +300,12 @@ export const useRemoteStore = create<RemoteStoreState>((set, get) => {
           // Verify session still exists on backend
           const res = await fetch(`/api/remote/sessions/${encodeURIComponent(parsed.sessionId)}`);
           if (res.ok) {
-            get().connectAsClient(parsed.sessionId, parsed.pin);
+            if (parsed.role === 'host') {
+              set({ role: 'host', sessionId: parsed.sessionId, pinCode: parsed.pin || null });
+              initSocket(parsed.sessionId, 'host');
+            } else {
+              get().connectAsClient(parsed.sessionId, parsed.pin);
+            }
           } else {
             localStorage.removeItem(STORAGE_KEY);
           }
@@ -269,4 +315,22 @@ export const useRemoteStore = create<RemoteStoreState>((set, get) => {
       }
     },
   };
+});
+
+// Auto-sync host user context (favorites, watched, progress) whenever playbackStore changes
+usePlaybackStore.subscribe((state, prevState) => {
+  const remote = useRemoteStore.getState();
+  if (remote.role === 'host' && remote.isPaired && remote.clientCount > 0) {
+    if (
+      state.favorites !== prevState.favorites ||
+      state.watchedSummary !== prevState.watchedSummary ||
+      state.progress !== prevState.progress
+    ) {
+      remote.syncHostUserContext({
+        favorites: state.favorites,
+        watchedSummary: state.watchedSummary,
+        progress: state.progress,
+      });
+    }
+  }
 });

@@ -13,6 +13,7 @@ import {
   FiNavigation,
   FiPower,
   FiHardDrive,
+  FiGlobe,
 } from 'react-icons/fi';
 import { useRemoteStore } from '../../store/remoteStore';
 import { RemoteDpadView } from './RemoteDpadView';
@@ -23,26 +24,15 @@ interface RemoteExpandedSheetProps {
 }
 
 export const RemoteExpandedSheet: React.FC<RemoteExpandedSheetProps> = ({ isOpen, onClose }) => {
-  const { remoteNowPlaying, sendCommand, disconnect } = useRemoteStore();
+  const { isPaired, remoteNowPlaying, sendCommand, disconnect } = useRemoteStore();
   const [activeTab, setActiveTab] = useState<'media' | 'dpad'>('media');
 
-  if (!isOpen) return null;
+  if (!isOpen || !isPaired) return null;
 
   const triggerHaptic = () => {
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
       navigator.vibrate(20);
     }
-  };
-
-  const formatTime = (seconds: number) => {
-    if (!seconds || isNaN(seconds) || !isFinite(seconds)) return '00:00';
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = Math.floor(seconds % 60);
-    if (h > 0) {
-      return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-    }
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
   const handlePlayPause = () => {
@@ -57,6 +47,7 @@ export const RemoteExpandedSheet: React.FC<RemoteExpandedSheetProps> = ({ isOpen
 
   const handleSeekSlider = (e: React.ChangeEvent<HTMLInputElement>) => {
     const positionSeconds = parseFloat(e.target.value);
+    triggerHaptic();
     sendCommand({ type: 'COMMAND_SEEK', payload: { positionSeconds } });
   };
 
@@ -76,36 +67,58 @@ export const RemoteExpandedSheet: React.FC<RemoteExpandedSheetProps> = ({ isOpen
   };
 
   const handleDisconnect = () => {
+    triggerHaptic();
     disconnect();
     onClose();
   };
 
-  const duration = remoteNowPlaying?.duration || 0;
-  const currentTime = remoteNowPlaying?.currentTime || 0;
   const isPaused = remoteNowPlaying?.isPaused ?? true;
+  const currentTime = remoteNowPlaying?.currentTime ?? 0;
+  const duration = remoteNowPlaying?.duration ?? 0;
   const volume = remoteNowPlaying?.volume ?? 1;
   const isMuted = remoteNowPlaying?.isMuted ?? false;
   const canSkipIntro = remoteNowPlaying?.introDetection?.canSkip;
 
+  const formatTime = (secs: number) => {
+    if (!secs || isNaN(secs)) return '0:00';
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+  };
+
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col justify-end bg-black/80 backdrop-blur-md animate-fade-in"
-      role="dialog"
-      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in"
+      onClick={onClose}
     >
-      <div className="relative w-full max-h-[92vh] bg-neutral-900 border-t border-neutral-800 rounded-t-3xl flex flex-col overflow-hidden shadow-2xl">
+      <div
+        className="relative w-full max-w-lg max-h-[92vh] bg-neutral-900 border-t sm:border border-neutral-800 rounded-t-3xl sm:rounded-3xl flex flex-col overflow-hidden shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Drag Handle Bar */}
-        <div className="w-12 h-1.5 bg-neutral-700 rounded-full mx-auto mt-3 mb-2" />
+        <div className="w-12 h-1.5 bg-neutral-700 rounded-full mx-auto mt-3 mb-2 sm:hidden" />
 
         {/* Top Bar */}
-        <div className="flex items-center justify-between px-6 py-2 border-b border-neutral-800/80">
-          <div className="flex items-center gap-2 text-emerald-400 text-sm font-medium">
-            <FiTv className="w-4 h-4" />
-            <span>Transmitindo na TV</span>
-            {remoteNowPlaying?.isOffline && (
-              <span className="text-[11px] px-2 py-0.5 rounded-full font-bold bg-emerald-600 text-white flex items-center gap-1 shadow-sm">
+        <div className="flex items-center justify-between px-6 py-2.5 border-b border-neutral-800/80">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 text-emerald-400 text-sm font-semibold">
+              <FiTv className="w-4 h-4" />
+              <span>Transmitindo na TV</span>
+            </div>
+            {remoteNowPlaying?.isOffline ? (
+              <span className="text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-emerald-600/90 text-white flex items-center gap-1 shadow-sm">
                 <FiHardDrive className="w-3 h-3" />
-                <span>Streaming Offline</span>
+                <span>Offline Local</span>
+              </span>
+            ) : remoteNowPlaying?.isCasting ? (
+              <span className="text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-indigo-600/90 text-white flex items-center gap-1 shadow-sm">
+                <FiTv className="w-3 h-3" />
+                <span>Na TV (Online)</span>
+              </span>
+            ) : (
+              <span className="text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-blue-600/80 text-blue-100 flex items-center gap-1 shadow-sm">
+                <FiGlobe className="w-3 h-3" />
+                <span>Streaming Online</span>
               </span>
             )}
           </div>

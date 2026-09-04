@@ -605,6 +605,7 @@ export async function clearWatchedEpisodes(): Promise<void> {
 export interface WatchedSummary {
   seriesCounts: Record<string, number>;
   movieIds: string[];
+  watchedEpisodeIds?: string[];
 }
 
 export async function getWatchedSummary(): Promise<WatchedSummary> {
@@ -614,6 +615,7 @@ export async function getWatchedSummary(): Promise<WatchedSummary> {
     const store = tx.objectStore(STORE_WATCHED_EPISODES);
     const seriesCounts: Record<string, number> = {};
     const movieIds: string[] = [];
+    const watchedEpisodeIds: string[] = [];
 
     const request = store.openCursor();
     request.onsuccess = (event) => {
@@ -622,12 +624,13 @@ export async function getWatchedSummary(): Promise<WatchedSummary> {
         const item = cursor.value as WatchedEpisodeRecord;
         if (item.mediaType === 'series' && item.seriesId) {
           seriesCounts[item.seriesId] = (seriesCounts[item.seriesId] || 0) + 1;
+          watchedEpisodeIds.push(item.id);
         } else if (item.mediaType === 'movie') {
           movieIds.push(item.id);
         }
         cursor.continue();
       } else {
-        resolve({ seriesCounts, movieIds });
+        resolve({ seriesCounts, movieIds, watchedEpisodeIds });
       }
     };
     request.onerror = () => reject(request.error || new Error('Failed to get watched summary'));

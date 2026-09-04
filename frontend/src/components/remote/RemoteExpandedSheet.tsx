@@ -12,6 +12,7 @@ import {
   FiSliders,
   FiNavigation,
   FiPower,
+  FiHardDrive,
 } from 'react-icons/fi';
 import { useRemoteStore } from '../../store/remoteStore';
 import { RemoteDpadView } from './RemoteDpadView';
@@ -101,6 +102,12 @@ export const RemoteExpandedSheet: React.FC<RemoteExpandedSheetProps> = ({ isOpen
           <div className="flex items-center gap-2 text-emerald-400 text-sm font-medium">
             <FiTv className="w-4 h-4" />
             <span>Transmitindo na TV</span>
+            {remoteNowPlaying?.isOffline && (
+              <span className="text-[11px] px-2 py-0.5 rounded-full font-bold bg-emerald-600 text-white flex items-center gap-1 shadow-sm">
+                <FiHardDrive className="w-3 h-3" />
+                <span>Streaming Offline</span>
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <button

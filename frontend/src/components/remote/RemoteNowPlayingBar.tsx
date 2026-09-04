@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FiTv, FiPlay, FiPause, FiWifiOff } from 'react-icons/fi';
+import { FiTv, FiPlay, FiPause, FiWifiOff, FiHardDrive } from 'react-icons/fi';
 import { useRemoteStore } from '../../store/remoteStore';
 import { RemoteExpandedSheet } from './RemoteExpandedSheet';
 
@@ -59,6 +59,11 @@ export const RemoteNowPlayingBar: React.FC = () => {
             <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400">
               Na TV
             </span>
+            {remoteNowPlaying?.isOffline && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-emerald-600/90 text-white flex items-center gap-1 shadow-xs">
+                <FiHardDrive className="w-2.5 h-2.5" /> Offline
+              </span>
+            )}
             {connectionStatus === 'reconnecting' && (
               <span className="text-[10px] text-amber-400 flex items-center gap-1">
                 <FiWifiOff className="w-3 h-3" /> Reconectando...

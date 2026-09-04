@@ -225,6 +225,9 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
               ...state.watchedSummary.seriesCounts,
               [item.seriesId!]: (state.watchedSummary.seriesCounts[item.seriesId!] || 0) + 1,
             },
+            watchedEpisodeIds: state.watchedSummary.watchedEpisodeIds?.includes(item.id)
+              ? state.watchedSummary.watchedEpisodeIds
+              : [...(state.watchedSummary.watchedEpisodeIds || []), item.id],
           },
         }));
       } else if (item.type === 'movie') {
@@ -375,6 +378,9 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
             ...state.watchedSummary.seriesCounts,
             [record.seriesId!]: (state.watchedSummary.seriesCounts[record.seriesId!] || 0) + 1,
           },
+          watchedEpisodeIds: state.watchedSummary.watchedEpisodeIds?.includes(record.id)
+            ? state.watchedSummary.watchedEpisodeIds
+            : [...(state.watchedSummary.watchedEpisodeIds || []), record.id],
         },
       }));
     } else if (record.mediaType === 'movie') {
@@ -401,6 +407,7 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
               ...state.watchedSummary.seriesCounts,
               [seriesId]: Math.max(0, curr - 1),
             },
+            watchedEpisodeIds: state.watchedSummary.watchedEpisodeIds?.filter((eid) => eid !== id) || [],
           },
         };
       });
@@ -430,15 +437,21 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
 
     await db.saveWatchedEpisodesBatch(records);
     const seriesRecords = await db.getWatchedEpisodesBySeries(series.id);
-    set((state) => ({
-      watchedSummary: {
-        ...state.watchedSummary,
-        seriesCounts: {
-          ...state.watchedSummary.seriesCounts,
-          [series.id]: seriesRecords.length,
+    set((state) => {
+      const addedIds = records.map((r) => r.id);
+      const existing = new Set(state.watchedSummary.watchedEpisodeIds || []);
+      for (const id of addedIds) existing.add(id);
+      return {
+        watchedSummary: {
+          ...state.watchedSummary,
+          seriesCounts: {
+            ...state.watchedSummary.seriesCounts,
+            [series.id]: seriesRecords.length,
+          },
+          watchedEpisodeIds: Array.from(existing),
         },
-      },
-    }));
+      };
+    });
   },
 
   unmarkSeasonWatched: async (seriesId, season, episodes) => {
@@ -452,6 +465,9 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
           ...state.watchedSummary.seriesCounts,
           [seriesId]: seriesRecords.length,
         },
+        watchedEpisodeIds: (state.watchedSummary.watchedEpisodeIds || []).filter(
+          (id) => !ids.includes(id)
+        ),
       },
     }));
   },

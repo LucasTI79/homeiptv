@@ -10,6 +10,7 @@ export interface RemoteNowPlayingState {
   duration: number;
   volume: number;
   isMuted: boolean;
+  isOffline?: boolean;
   seriesContext?: {
     seriesId: string;
     season: string | number;
@@ -37,6 +38,7 @@ export interface RemoteUserContext {
   watchedSummary: {
     seriesCounts: Record<string, number>;
     movieIds: string[];
+    watchedEpisodeIds?: string[];
   };
   progress: Record<string, any>;
 }

@@ -62,6 +62,8 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
   const unmarkSeasonWatched = usePlaybackStore((s) => s.unmarkSeasonWatched);
   const clearSeriesProgress = usePlaybackStore((s) => s.clearSeriesProgress);
 
+  const watchedSummary = usePlaybackStore((s) => s.watchedSummary);
+
   // Load watched status on-demand for this specific series only
   const [watchedKeys, setWatchedKeys] = useState<Set<string>>(new Set());
 
@@ -70,14 +72,32 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
     getWatchedEpisodesBySeries(seriesId)
       .then((records) => {
         if (active) {
-          setWatchedKeys(new Set(records.map((r) => r.id)));
+          const keys = new Set(records.map((r) => r.id));
+          if (watchedSummary.watchedEpisodeIds) {
+            for (const id of watchedSummary.watchedEpisodeIds) {
+              if (id.startsWith(`${seriesId}_`)) {
+                keys.add(id);
+              }
+            }
+          }
+          setWatchedKeys(keys);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        if (active && watchedSummary.watchedEpisodeIds) {
+          const keys = new Set<string>();
+          for (const id of watchedSummary.watchedEpisodeIds) {
+            if (id.startsWith(`${seriesId}_`)) {
+              keys.add(id);
+            }
+          }
+          setWatchedKeys(keys);
+        }
+      });
     return () => {
       active = false;
     };
-  }, [seriesId]);
+  }, [seriesId, watchedSummary.watchedEpisodeIds]);
 
   const tasks = useDownloadStore((s) => s.tasks);
   const initDownloads = useDownloadStore((s) => s.initDownloads);

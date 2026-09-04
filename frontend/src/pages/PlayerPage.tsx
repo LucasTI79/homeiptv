@@ -384,6 +384,7 @@ export function PlayerPage() {
       duration: effectiveDuration,
       volume: effectiveVolume,
       isMuted: effectiveIsMuted,
+      isOffline: isOfflineMedia,
       seriesContext: selectedChannel.seriesContext,
       introDetection: activeIntroSegment
         ? { canSkip: true, introEnd: activeIntroSegment.endSec }
@@ -402,6 +403,7 @@ export function PlayerPage() {
     duration,
     volume,
     isMuted,
+    isOfflineMedia,
     activeIntroSegment,
   ]);
 
@@ -742,14 +744,16 @@ export function PlayerPage() {
 
   // Periodic progress saving & next episode trigger
   useEffect(() => {
-    if (!selectedChannel?.isVod || !videoRef.current) return;
+    if (!selectedChannel?.isVod) return;
+    if (!isCasting && !videoRef.current) return;
 
     const interval = setInterval(() => {
-      const v = videoRef.current;
-      if (!v || v.paused || !v.duration || isNaN(v.duration) || v.duration <= 0) return;
+      const isPaused = isCasting ? castIsPaused : videoRef.current?.paused;
+      const curr = isCasting ? castCurrentTime : videoRef.current?.currentTime;
+      const dur = isCasting ? castDuration : videoRef.current?.duration;
 
-      const curr = v.currentTime;
-      const dur = v.duration;
+      if (isPaused || curr === undefined || !dur || isNaN(dur) || dur <= 0) return;
+
       const itemId = getProgressItemId();
 
       if (curr > MIN_PLAYBACK_PROGRESS_RECORD_SECONDS) {
@@ -787,7 +791,18 @@ export function PlayerPage() {
     }, PROGRESS_INTERVAL_MS);
 
     return () => clearInterval(interval);
-  }, [selectedChannel, getProgressItemId, saveProgress, nextEpDismissed, nextEpCountdown, activeCreditsSegment]);
+  }, [
+    selectedChannel,
+    isCasting,
+    castIsPaused,
+    castCurrentTime,
+    castDuration,
+    getProgressItemId,
+    saveProgress,
+    nextEpDismissed,
+    nextEpCountdown,
+    activeCreditsSegment,
+  ]);
 
   // Next episode countdown ticker
   useEffect(() => {

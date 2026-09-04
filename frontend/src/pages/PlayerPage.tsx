@@ -121,8 +121,13 @@ export function PlayerPage() {
     const vodEngine = config.settings.vodPlaybackEngine || 'native';
     const useNativeVod = isVod && vodEngine === 'native';
 
-    // When playing native VOD over HTTPS, proxy through /api/media-proxy to prevent Mixed Content and CSP blocks
-    const streamUrlToPlay = useNativeVod
+    const isLocalApiUrl = selectedChannel.url.startsWith('/api/');
+
+    // When playing native VOD over HTTPS, proxy remote URLs through /api/media-proxy to prevent Mixed Content and CSP blocks.
+    // Local /api/ endpoints are already served by the local backend over the current origin and should be played directly.
+    const streamUrlToPlay = isLocalApiUrl
+      ? selectedChannel.url
+      : useNativeVod
       ? `/api/media-proxy?url=${encodeURIComponent(selectedChannel.url)}`
       : (forceDirect || profile.command === 'redirect')
       ? selectedChannel.url
@@ -280,6 +285,10 @@ export function PlayerPage() {
   const prepareCastMedia = useCallback(async (channel: any): Promise<{ targetUrl: string; isOffline: boolean }> => {
     let targetUrl = channel.url;
     let isOffline = false;
+
+    if (channel.url?.startsWith('/api/local-media')) {
+      return { targetUrl: channel.url, isOffline: true };
+    }
 
     if (channel.isVod) {
       const localFileName = await resolveLocalDownloadFileName(channel);

@@ -162,6 +162,9 @@ proxyRouter.get('/media-proxy', allowLocalOrAuth(), (req, res) => {
 
     let parsed: URL;
     try {
+      if (urlStr.startsWith('/')) {
+        return res.redirect(urlStr);
+      }
       parsed = new URL(urlStr);
     } catch {
       return res.status(400).send('Invalid URL');

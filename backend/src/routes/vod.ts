@@ -1,4 +1,5 @@
 import fs from 'fs';
+import path from 'path';
 import { spawn } from 'child_process';
 import { Router } from 'express';
 import { db } from '../db/connection';
@@ -415,10 +416,32 @@ vodRouter.get('/vod/categories', requireAuth, async (_req, res) => {
 });
 
 vodRouter.get('/vod/duration', requireAuth, (req, res) => {
-  const sourceUrl = req.query.url as string | undefined;
+  let sourceUrl = req.query.url as string | undefined;
   const userAgentId = req.query.userAgentId as string | undefined;
   if (!sourceUrl) {
     return res.status(400).json({ error: '`url` query parameter is required.' });
+  }
+
+  // Handle local media URLs by resolving to the physical file path on disk
+  if (sourceUrl.includes('/api/local-media/stream')) {
+    try {
+      const parsed = new URL(sourceUrl, 'http://localhost');
+      const mediaId = parsed.searchParams.get('id');
+      const fileParam = parsed.searchParams.get('file');
+      const localIndex = getLocalMediaIndex();
+      let resolvedFile: string | null = null;
+      if (mediaId) {
+        resolvedFile = localIndex.movies.find((m) => m.id === mediaId)?.filePath ||
+          localIndex.episodes.find((e) => e.id === mediaId)?.filePath || null;
+      } else if (fileParam) {
+        resolvedFile = path.resolve(fileParam);
+      }
+      if (resolvedFile && fs.existsSync(resolvedFile)) {
+        sourceUrl = resolvedFile;
+      }
+    } catch (e) {
+      console.warn('[VOD_DURATION] Could not resolve local media path:', e);
+    }
   }
 
   const settings = getSettings();

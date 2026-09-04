@@ -90,6 +90,25 @@ export function PlayerPage() {
   // Resume prompt state
   const [resumePrompt, setResumePrompt] = useState<{ time: number; formatted: string } | null>(null);
   const hasCheckedResumeRef = useRef<boolean>(false);
+  const realVodDurationRef = useRef<number | null>(null);
+
+  // Probe real duration for VOD items (essential for local media and transcoded streams)
+  useEffect(() => {
+    realVodDurationRef.current = null;
+    if (!selectedChannel?.isVod || !selectedChannel?.url) return;
+
+    let isMounted = true;
+    probeVodDuration(selectedChannel.url, config?.settings?.activeUserAgentId).then((probed) => {
+      if (isMounted && probed && probed > 0) {
+        realVodDurationRef.current = probed;
+        setDuration(probed);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedChannel?.url, selectedChannel?.isVod, config?.settings?.activeUserAgentId]);
 
   // Next Episode Countdown overlay state
   const [nextEpCountdown, setNextEpCountdown] = useState<number | null>(null);
@@ -395,7 +414,9 @@ export function PlayerPage() {
       return;
     }
     if (!videoRef.current) return;
-    const maxDur = (duration && isFinite(duration) && duration > 0) ? duration : (videoRef.current.duration || 0);
+    const maxDur = (duration && isFinite(duration) && duration > 0)
+      ? duration
+      : (realVodDurationRef.current || videoRef.current.duration || 0);
     const newTime = Math.max(0, Math.min(maxDur, (videoRef.current.currentTime || currentTime) + deltaSeconds));
     seekToVideoTime(newTime);
   };
@@ -414,7 +435,10 @@ export function PlayerPage() {
     setCurrentTime(newTime);
 
     const isLocal = selectedChannel?.url?.startsWith('/api/local-media');
-    const isContinuousStream = !isFinite(videoRef.current.duration) || videoRef.current.duration <= 0;
+    const realDur = realVodDurationRef.current || duration || 0;
+    const isContinuousStream = !isFinite(videoRef.current.duration) ||
+      videoRef.current.duration <= 0 ||
+      (realDur > 0 && videoRef.current.duration < realDur * 0.9);
 
     if (isLocal && isContinuousStream) {
       const currentSrc = videoRef.current.src || selectedChannel?.url || '';
@@ -831,16 +855,25 @@ export function PlayerPage() {
 
   // Check for resume position when video metadata is loaded
   const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
-    let dur = e.currentTarget.duration || 0;
-    if (typeof dur === 'number' && !isNaN(dur) && isFinite(dur) && dur > 0) {
-      setDuration(dur);
-    } else if (selectedChannel?.isVod && selectedChannel.url) {
-      probeVodDuration(selectedChannel.url).then((probed) => {
+    const isLocal = selectedChannel?.url?.startsWith('/api/local-media');
+    let dur = realVodDurationRef.current || 0;
+
+    if (dur <= 0 && !isLocal) {
+      const nativeDur = e.currentTarget.duration;
+      if (typeof nativeDur === 'number' && !isNaN(nativeDur) && isFinite(nativeDur) && nativeDur > 0) {
+        dur = nativeDur;
+      }
+    }
+
+    if (dur <= 0 && selectedChannel?.isVod && selectedChannel.url) {
+      probeVodDuration(selectedChannel.url, config?.settings?.activeUserAgentId).then((probed) => {
         if (probed && probed > 0) {
+          realVodDurationRef.current = probed;
           setDuration(probed);
-          dur = probed;
         }
       });
+    } else if (dur > 0) {
+      setDuration(dur);
     }
 
     if (selectedChannel?.isVod && !hasCheckedResumeRef.current) {
@@ -910,7 +943,7 @@ export function PlayerPage() {
 
     getContentSegment(parsed.seasonClusterId, 'CREDITS').then((seg) => {
       if (isCancelled) return;
-      const dur = videoRef.current?.duration;
+      const dur = realVodDurationRef.current || (duration > 0 ? duration : (videoRef.current?.duration || 0));
       // Sanity check: discard any stored segment that is outside the genuine credits window
       if (seg && seg.confidence >= 0.8) {
         if (!dur || isNaN(dur) || seg.startSec >= dur - MAX_CREDITS_WINDOW_SECONDS) {
@@ -963,7 +996,7 @@ export function PlayerPage() {
         collector.start(videoRef.current, 180, onSample);
         creditsDetector.start(videoRef.current, (creditsStartSec) => {
           if (isCancelled) return;
-          const dur = videoRef.current?.duration || 0;
+          const dur = realVodDurationRef.current || (duration > 0 ? duration : (videoRef.current?.duration || 0));
           // Guard: Only accept credits detected within the genuine credits window
           if (dur > 0 && creditsStartSec < dur - MAX_CREDITS_WINDOW_SECONDS) return;
 
@@ -1015,7 +1048,12 @@ export function PlayerPage() {
     const interval = setInterval(() => {
       const isPaused = isCasting ? castIsPaused : videoRef.current?.paused;
       const curr = isCasting ? castCurrentTime : videoRef.current?.currentTime;
-      const dur = isCasting ? castDuration : videoRef.current?.duration;
+      const effectiveDur = isCasting
+        ? castDuration
+        : (realVodDurationRef.current && realVodDurationRef.current > 0
+            ? realVodDurationRef.current
+            : (duration > 0 ? duration : (videoRef.current?.duration || 0)));
+      const dur = effectiveDur;
 
       if (isPaused || curr === undefined || !dur || isNaN(dur) || dur <= 0) return;
 
@@ -1287,13 +1325,18 @@ export function PlayerPage() {
             onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
             onLoadedMetadata={handleLoadedMetadata}
             onDurationChange={(e) => {
+              // Se já temos a duração real confirmada para este VOD, NÃO sobrescrever com o buffer!
+              if (realVodDurationRef.current && realVodDurationRef.current > 0) {
+                return;
+              }
+              const isLocal = selectedChannel?.url?.startsWith('/api/local-media');
+              if (isLocal) {
+                // Em mídia local fMP4, o browser reporta o buffer como duration. Não aceitar!
+                return;
+              }
               const dur = e.currentTarget.duration;
               if (dur && !isNaN(dur) && isFinite(dur) && dur > 0) {
                 setDuration(dur);
-              } else if (selectedChannel?.isVod && selectedChannel.url && duration <= 0) {
-                probeVodDuration(selectedChannel.url).then((probed) => {
-                  if (probed && probed > 0) setDuration(probed);
-                });
               }
             }}
           />

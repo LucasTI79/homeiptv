@@ -174,6 +174,19 @@ localMediaRouter.post('/local-media/scan', requireAuth, (_req, res) => {
 });
 
 /**
+ * OPTIONS /api/local-media/poster
+ */
+localMediaRouter.options('/local-media/poster', (_req, res) => {
+  res.writeHead(204, {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+    'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Range',
+    'Cross-Origin-Resource-Policy': 'cross-origin',
+  });
+  return res.end();
+});
+
+/**
  * GET /api/local-media/poster
  * Serves local poster images with authentication / token support.
  */
@@ -190,7 +203,23 @@ localMediaRouter.get('/local-media/poster', streamAuth, (req, res) => {
   const contentType = MIME_TYPES[ext] || 'image/jpeg';
   res.setHeader('Content-Type', contentType);
   res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   fs.createReadStream(resolved).pipe(res);
+});
+
+/**
+ * OPTIONS /api/local-media/stream
+ */
+localMediaRouter.options('/local-media/stream', (_req, res) => {
+  res.writeHead(204, {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+    'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Range',
+    'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
+    'Cross-Origin-Resource-Policy': 'cross-origin',
+  });
+  return res.end();
 });
 
 /**
@@ -237,7 +266,10 @@ localMediaRouter.get('/local-media/stream', streamAuth, (req, res) => {
         'Accept-Ranges': isNative ? 'bytes' : 'none',
         'Cache-Control': 'no-cache',
         'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
         'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Range',
+        'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
+        'Cross-Origin-Resource-Policy': 'cross-origin',
       });
       return res.end();
     }
@@ -266,7 +298,10 @@ localMediaRouter.get('/local-media/stream', streamAuth, (req, res) => {
           'Content-Length': chunkSize,
           'Content-Type': contentType,
           'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
           'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Range',
+          'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
+          'Cross-Origin-Resource-Policy': 'cross-origin',
         });
 
         fileStream.pipe(res);
@@ -276,7 +311,10 @@ localMediaRouter.get('/local-media/stream', streamAuth, (req, res) => {
           'Content-Type': contentType,
           'Accept-Ranges': 'bytes',
           'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
           'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Range',
+          'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
+          'Cross-Origin-Resource-Policy': 'cross-origin',
         });
 
         fs.createReadStream(targetFilePath).pipe(res);
@@ -284,7 +322,10 @@ localMediaRouter.get('/local-media/stream', streamAuth, (req, res) => {
     } else {
       // Transcode sob demanda para fMP4 (fragmented MP4) com codec universal H.264 + AAC
       // Compatível com todos os navegadores modernos (Chrome, Firefox, Safari, Edge) e Chromecast
-      const seekSeconds = Math.max(0, parseFloat((req.query.seek || req.query.t || req.query.start || '0') as string) || 0);
+      const seekSeconds = Math.max(
+        0,
+        parseFloat((req.query.seek || req.query.t || req.query.start || req.query.startTime || '0') as string) || 0
+      );
 
       res.writeHead(200, {
         'Content-Type': 'video/mp4',
@@ -293,7 +334,10 @@ localMediaRouter.get('/local-media/stream', streamAuth, (req, res) => {
         'Pragma': 'no-cache',
         'Expires': '0',
         'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
         'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Range',
+        'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
+        'Cross-Origin-Resource-Policy': 'cross-origin',
       });
 
       const ffmpegArgs: string[] = [
@@ -309,10 +353,13 @@ localMediaRouter.get('/local-media/stream', streamAuth, (req, res) => {
         '-i', targetFilePath,
         '-c:v', 'libx264',
         '-preset', 'ultrafast',
+        '-tune', 'zerolatency',
+        '-pix_fmt', 'yuv420p',
         '-crf', '23',
         '-c:a', 'aac',
         '-b:a', '128k',
         '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+        '-flush_packets', '1',
         '-f', 'mp4',
         'pipe:1'
       );

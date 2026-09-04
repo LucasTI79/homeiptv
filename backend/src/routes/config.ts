@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { db } from '../db/connection';
 import { requireAuth } from '../middleware/auth';
 import { getSettings } from '../services/settings';
+import { env } from '../config/env';
 import { LIVE_CHANNELS_M3U_PATH, LIVE_EPG_JSON_PATH, VOD_MOVIES_JSON_PATH, VOD_SERIES_JSON_PATH } from '../config/paths';
 
 // Ports GET /api/config from server.js:2002-2195.
@@ -160,7 +161,13 @@ configRouter.get('/config', requireAuth, async (req, res) => {
         userSettings[row.key] = row.value;
       }
     }
-    config.settings = { ...config.settings, ...userSettings };
+    config.settings = {
+      ...globalSettings,
+      ...config.settings,
+      ...userSettings,
+      serverPort: env.port,
+      castMediaPort: env.port,
+    };
 
     let userPermissionsSignature = 'default';
     if (allowedSources) {

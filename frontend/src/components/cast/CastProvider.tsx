@@ -5,17 +5,18 @@ import { useConfig } from '../../api/guide';
 import { toast } from 'react-hot-toast';
 
 const APPLICATION_ID = 'CC1AD845';
-const CAST_MEDIA_PORT = 8998;
+const CAST_MEDIA_PORT = 8999;
 
-export function toCastMediaUrl(streamUrl: string) {
+export function toCastMediaUrl(streamUrl: string, configuredPort?: number) {
+  const port = configuredPort || CAST_MEDIA_PORT;
   if (!streamUrl.startsWith('http')) {
-    return `http://${window.location.hostname}:${CAST_MEDIA_PORT}${streamUrl}`;
+    return `http://${window.location.hostname}:${port}${streamUrl}`;
   }
   try {
     const parsed = new URL(streamUrl);
     if (parsed.hostname === window.location.hostname) {
       parsed.protocol = 'http:';
-      parsed.port = String(CAST_MEDIA_PORT);
+      parsed.port = String(port);
       return parsed.toString();
     }
   } catch (e) {
@@ -342,13 +343,13 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      const absoluteUrl = toCastMediaUrl(castUrl);
+      const castPort = Number((settings as any)?.castMediaPort || (settings as any)?.serverPort || CAST_MEDIA_PORT);
+      const absoluteUrl = toCastMediaUrl(castUrl, castPort);
 
       let durationSeconds: number | null = null;
       if (isVod && originalUrl) {
         durationSeconds = await probeVodDuration(originalUrl, settings?.activeUserAgentId);
       }
-
 
       const mediaInfo = new chrome.cast.media.MediaInfo(absoluteUrl, 'video/mp4');
 
@@ -360,7 +361,8 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
       mediaInfo.metadata = new chrome.cast.media.TvShowMediaMetadata();
       mediaInfo.metadata.title = name;
       if (logo) {
-        mediaInfo.metadata.images = [new chrome.cast.Image(logo)];
+        const absoluteLogo = logo.startsWith('http') ? logo : toCastMediaUrl(logo, castPort);
+        mediaInfo.metadata.images = [new chrome.cast.Image(absoluteLogo)];
       }
 
       const request = new chrome.cast.media.LoadRequest(mediaInfo);

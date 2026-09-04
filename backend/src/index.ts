@@ -65,6 +65,7 @@ app.use(
         frameSrc: ["'none'"],
       },
     },
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
   })
 );
 

@@ -1,7 +1,10 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useLogout } from '../api/auth';
 import { useUiStore } from '../store/uiStore';
 import { useConfig } from '../api/guide';
+import { useRemoteStore } from '../store/remoteStore';
+import { useDownloadStore } from '../store/downloadStore';
+import { useEffect } from 'react';
 import { FiMenu, FiX, FiLogOut } from 'react-icons/fi';
 
 const NAV_ITEMS = [
@@ -17,6 +20,7 @@ const NAV_ITEMS = [
 ];
 
 export function AppShell() {
+  const navigate = useNavigate();
   const logout = useLogout();
   const appName = useUiStore((state) => state.appName);
   const isMobileNavOpen = useUiStore((state) => state.isMobileNavOpen);
@@ -24,6 +28,16 @@ export function AppShell() {
 
   // Keep guide config warm in memory
   useConfig();
+
+  useEffect(() => {
+    useRemoteStore.getState().setHostNavigateCallback((path) => {
+      navigate(path);
+    });
+    useDownloadStore.getState().initDownloads().catch(() => {});
+    return () => {
+      useRemoteStore.getState().setHostNavigateCallback(null);
+    };
+  }, [navigate]);
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 flex flex-col">

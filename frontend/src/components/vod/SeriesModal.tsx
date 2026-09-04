@@ -4,6 +4,7 @@ import { proxiedLogoUrl, PLACEHOLDER_LOGO } from '../guide/ChannelRow';
 
 import { usePlaybackStore } from '../../store/playbackStore';
 import { useDownloadStore } from '../../store/downloadStore';
+import { useRemoteStore } from '../../store/remoteStore';
 import { getWatchedEpisodesBySeries } from '../../services/db';
 import { toast } from 'react-hot-toast';
 import {
@@ -105,6 +106,10 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
   const enqueueSeason = useDownloadStore((s) => s.enqueueSeason);
   const cancelDownload = useDownloadStore((s) => s.cancelDownload);
 
+  const clientCompletedDownloads = useRemoteStore((s) => s.clientCompletedDownloads);
+  const role = useRemoteStore((s) => s.role);
+  const isRemoteClient = role === 'client';
+
   useEffect(() => {
     initDownloads();
   }, [initDownloads]);
@@ -114,7 +119,7 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
   const currentEpisodes: SeriesEpisode[] = seasons[activeSeason] || (seasonKeys.length > 0 ? seasons[seasonKeys[0]] || [] : []);
 
   const seasonEpKeys = currentEpisodes.map((_, idx) => `${seriesId}_s${activeSeason}_e${idx}`);
-  const downloadedCount = seasonEpKeys.filter((k) => tasks[k]?.status === 'completed').length;
+  const downloadedCount = seasonEpKeys.filter((k) => tasks[k]?.status === 'completed' || clientCompletedDownloads.includes(k)).length;
   const downloadingCount = seasonEpKeys.filter((k) => tasks[k]?.status === 'downloading').length;
   const queuedCount = seasonEpKeys.filter((k) => tasks[k]?.status === 'queued').length;
   const allSeasonDownloaded = currentEpisodes.length > 0 && downloadedCount === currentEpisodes.length;
@@ -127,7 +132,7 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
   const allSeasonWatched = currentEpisodes.length > 0 && watchedSeasonCount === currentEpisodes.length;
 
   const seasonWatchedDownloadedCount = seasonEpKeys.filter(
-    (k) => tasks[k]?.status === 'completed' && watchedKeys.has(k)
+    (k) => (tasks[k]?.status === 'completed' || clientCompletedDownloads.includes(k)) && watchedKeys.has(k)
   ).length;
 
   // Check if series has in-progress episodes in Continue Watching
@@ -487,7 +492,7 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
                     : 0;
 
                   const epTask = tasks[epKey];
-                  const isEpDownloaded = epTask?.status === 'completed';
+                  const isEpDownloaded = epTask?.status === 'completed' || clientCompletedDownloads.includes(epKey);
                   const isEpDownloading = epTask?.status === 'downloading';
                   const isEpQueued = epTask?.status === 'queued';
                   const downloadPct = epTask && epTask.totalBytes > 0
@@ -564,7 +569,7 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
                           {isEpDownloaded && (
                             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
                               <FiCheckCircle className="w-3 h-3 text-emerald-400" />
-                              <span>Baixado offline {epTask.downloadedBytes ? `• ${formatBytes(epTask.downloadedBytes)}` : ''}</span>
+                              <span>{isRemoteClient ? '💾 Baixado no PC' : 'Baixado offline'} {epTask?.downloadedBytes ? `• ${formatBytes(epTask.downloadedBytes)}` : ''}</span>
                             </span>
                           )}
 
@@ -594,7 +599,13 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
                         {/* Episode Download Button */}
                         <button
                           type="button"
-                          onClick={() => handleDownloadEpisode(ep, idx)}
+                          onClick={() => {
+                            if (isEpDownloaded && isRemoteClient) {
+                              handleEpisodeClick(ep, idx);
+                              return;
+                            }
+                            handleDownloadEpisode(ep, idx);
+                          }}
                           className={`p-2 rounded-lg border transition text-xs font-medium flex items-center justify-center ${
                             isEpDownloaded
                               ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/40 hover:bg-emerald-600/30'
@@ -606,7 +617,7 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
                           }`}
                           title={
                             isEpDownloaded
-                              ? 'Episódio baixado offline (clique para remover download)'
+                              ? isRemoteClient ? 'Episódio baixado no PC (clique para reproduzir)' : 'Episódio baixado offline (clique para remover download)'
                               : isEpDownloading
                               ? `Baixando episódio (${downloadPct}%)`
                               : isEpQueued

@@ -91,6 +91,21 @@ export const usePlaybackStore = create<PlaybackState>((set, get) => ({
 
   init: async () => {
     try {
+      // Do not overwrite client's synchronized host context with local empty database!
+      let isRemoteClient = false;
+      try {
+        const mod = await import('./remoteStore');
+        if (mod?.useRemoteStore?.getState) {
+          isRemoteClient = mod.useRemoteStore.getState().role === 'client';
+        }
+      } catch {
+        // Safe fallback if remoteStore is not yet initialized
+      }
+      if (isRemoteClient) {
+        set({ isHydrated: true });
+        return;
+      }
+
       await db.migrateFromLocalStorage();
       const [dbProgressList, dbFavorites, dbWatchedSummary] = await Promise.all([
         db.getProgressList(),

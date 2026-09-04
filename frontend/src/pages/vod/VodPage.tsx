@@ -42,6 +42,8 @@ export function VodPage() {
   const tasks = useDownloadStore((s) => s.tasks);
   const enqueueMovie = useDownloadStore((s) => s.enqueueMovie);
   const initDownloads = useDownloadStore((s) => s.initDownloads);
+  const clientCompletedDownloads = useRemoteStore((s) => s.clientCompletedDownloads);
+  const role = useRemoteStore((s) => s.role);
 
   useEffect(() => {
     initDownloads();
@@ -649,9 +651,10 @@ export function VodPage() {
                     {item.type === 'movie' && item.url && (() => {
                       const taskId = `movie_${item.id}`;
                       const movieTask = tasks[taskId];
-                      const isDownloaded = movieTask?.status === 'completed';
+                      const isDownloaded = movieTask?.status === 'completed' || clientCompletedDownloads.includes(taskId) || clientCompletedDownloads.includes(item.id);
                       const isDownloading = movieTask?.status === 'downloading';
                       const isQueued = movieTask?.status === 'queued';
+                      const isRemoteClient = role === 'client';
                       const downloadPct = movieTask && movieTask.totalBytes > 0
                         ? Math.min(100, Math.round((movieTask.downloadedBytes / movieTask.totalBytes) * 100))
                         : 0;
@@ -662,6 +665,10 @@ export function VodPage() {
                           onClick={(e) => {
                             e.stopPropagation();
                             if (isDownloaded) {
+                              if (isRemoteClient) {
+                                handleVodClick(item);
+                                return;
+                              }
                               toast('Este filme já foi baixado para assistir offline!');
                               return;
                             }
@@ -688,7 +695,7 @@ export function VodPage() {
                           }`}
                           title={
                             isDownloaded
-                              ? 'Filme baixado para assistir offline'
+                              ? isRemoteClient ? 'Filme baixado no PC (clique para reproduzir)' : 'Filme baixado para assistir offline'
                               : isDownloading
                               ? `Baixando filme (${downloadPct}%)`
                               : isQueued
@@ -697,7 +704,10 @@ export function VodPage() {
                           }
                         >
                           {isDownloaded ? (
-                            <FiCheckCircle className="w-3.5 h-3.5" />
+                            <>
+                              <FiCheckCircle className="w-3.5 h-3.5 text-emerald-300" />
+                              {isRemoteClient && <span className="text-[10px]">No PC</span>}
+                            </>
                           ) : isDownloading ? (
                             <>
                               <FiLoader className="w-3.5 h-3.5 animate-spin" />

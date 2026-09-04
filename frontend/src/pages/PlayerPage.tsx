@@ -24,6 +24,7 @@ import {
   getDownloadTask,
 } from '../services/db';
 import { getDownloadedFile } from '../services/opfsStorage';
+import { ensureBackendMediaAvailable } from '../services/localMediaSync';
 
 import { VIDEO_INTELLIGENCE_CONFIG, PLAYER_CONFIG } from '../constants';
 
@@ -255,7 +256,52 @@ export function PlayerPage() {
     };
   }, [selectedChannel, config, forceDirect, retryNonce]);
 
+  const resolveLocalDownloadFileName = useCallback(async (channel: any): Promise<string | null> => {
+    if (!channel) return null;
+    if (channel.offlineFileName) return channel.offlineFileName;
+
+    const candidateIds = [
+      channel.id,
+      `movie_${channel.id}`,
+      channel.seriesContext
+        ? `${channel.seriesContext.seriesId}_s${channel.seriesContext.season}_e${channel.seriesContext.episodeIndex}`
+        : null,
+    ].filter(Boolean) as string[];
+
+    for (const cid of candidateIds) {
+      const task = await getDownloadTask(cid);
+      if (task && task.status === 'completed' && task.fileName) {
+        return task.fileName;
+      }
+    }
+    return null;
+  }, []);
+
+  const prepareCastMedia = useCallback(async (channel: any): Promise<{ targetUrl: string; isOffline: boolean }> => {
+    let targetUrl = channel.url;
+    let isOffline = false;
+
+    if (channel.isVod) {
+      const localFileName = await resolveLocalDownloadFileName(channel);
+      if (localFileName) {
+        try {
+          const syncResult = await ensureBackendMediaAvailable(localFileName);
+          if (syncResult.available && syncResult.streamUrl) {
+            targetUrl = syncResult.streamUrl;
+            isOffline = true;
+          }
+        } catch (err) {
+          console.warn('[PlayerPage] Failed to sync local media for cast:', err);
+        }
+      }
+    }
+
+    return { targetUrl, isOffline };
+  }, [resolveLocalDownloadFileName]);
+
   useEffect(() => {
+    let isCancelled = false;
+
     if (isCasting && isConnected && selectedChannel) {
       if (playerRef.current) {
         try {
@@ -268,15 +314,24 @@ export function PlayerPage() {
         }
         playerRef.current = null;
       }
-      loadMedia(
-        selectedChannel.url,
-        selectedChannel.name,
-        selectedChannel.logo || '',
-        !!selectedChannel.isVod,
-        selectedChannel.originalUrl || selectedChannel.url
-      );
+
+      prepareCastMedia(selectedChannel).then(({ targetUrl, isOffline }) => {
+        if (isCancelled) return;
+        setIsOfflineMedia(isOffline);
+        loadMedia(
+          targetUrl,
+          selectedChannel.name,
+          selectedChannel.logo || '',
+          !!selectedChannel.isVod,
+          selectedChannel.originalUrl || selectedChannel.url
+        );
+      });
     }
-  }, [isCasting, isConnected, selectedChannel, loadMedia]);
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [isCasting, isConnected, selectedChannel, loadMedia, prepareCastMedia]);
 
   useEffect(() => {
     if (videoRef.current) {
@@ -385,6 +440,7 @@ export function PlayerPage() {
       volume: effectiveVolume,
       isMuted: effectiveIsMuted,
       isOffline: isOfflineMedia,
+      isCasting,
       seriesContext: selectedChannel.seriesContext,
       introDetection: activeIntroSegment
         ? { canSkip: true, introEnd: activeIntroSegment.endSec }
@@ -465,14 +521,19 @@ export function PlayerPage() {
         }
       } else if (msg.type === 'COMMAND_PLAY_MEDIA') {
         const { id, name, url, logo, isVod, seriesContext } = msg.payload;
-        useUiStore.getState().setSelectedChannel({
-          id,
-          name,
-          url,
-          logo,
-          isVod: !!isVod,
-          seriesContext,
-        } as any);
+        const current = useUiStore.getState().selectedChannel;
+        if (current?.id !== id || current?.url !== url) {
+          useUiStore.getState().setSelectedChannel({
+            id,
+            name,
+            url,
+            logo,
+            isVod: !!isVod,
+            seriesContext,
+            offlineFileName: current?.offlineFileName,
+            isOffline: current?.isOffline,
+          } as any);
+        }
       } else if (msg.type === 'COMMAND_SKIP_INTRO') {
         if (activeIntroSegment) {
           if (isCasting) {
@@ -1234,7 +1295,15 @@ export function PlayerPage() {
                     if (!isCasting) {
                       await requestSession();
                     } else {
-                      loadMedia(selectedChannel.url, selectedChannel.name, (selectedChannel as any).logo || '');
+                      const { targetUrl, isOffline } = await prepareCastMedia(selectedChannel);
+                      setIsOfflineMedia(isOffline);
+                      loadMedia(
+                        targetUrl,
+                        selectedChannel.name,
+                        (selectedChannel as any).logo || '',
+                        !!selectedChannel.isVod,
+                        selectedChannel.originalUrl || selectedChannel.url
+                      );
                     }
                   }}
                   className={`hover:text-blue-400 cursor-pointer p-1 ${isCasting ? 'text-blue-500' : 'text-white'}`}

@@ -42,6 +42,7 @@ export interface RemoteUserContext {
     watchedEpisodeIds?: string[];
   };
   progress: Record<string, any>;
+  completedDownloads?: string[];
 }
 
 export type RemoteDpadKey = 'up' | 'down' | 'left' | 'right' | 'select' | 'back' | 'menu';

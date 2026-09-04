@@ -14,7 +14,8 @@ export const LIVE_CHANNELS_M3U_PATH = path.join(DATA_DIR, 'live_channels.m3u');
 export const LIVE_EPG_JSON_PATH = path.join(DATA_DIR, 'epg.json');
 export const VOD_MOVIES_JSON_PATH = path.join(DATA_DIR, 'vod_movies.json');
 export const VOD_SERIES_JSON_PATH = path.join(DATA_DIR, 'vod_series.json');
+export const DOWNLOADS_DIR = path.join(DATA_DIR, 'downloads');
 
-for (const dir of [DATA_DIR, SOURCES_DIR, RAW_CACHE_DIR, LOGS_DIR]) {
+for (const dir of [DATA_DIR, SOURCES_DIR, RAW_CACHE_DIR, LOGS_DIR, DOWNLOADS_DIR]) {
   fs.mkdirSync(dir, { recursive: true });
 }

@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import type { RemoteMessage, RemoteNowPlayingState, RemoteUserContext } from '@homeiptv/shared-types';
 import { usePlaybackStore } from './playbackStore';
+import { useDownloadStore } from './downloadStore';
+import { useUiStore } from './uiStore';
 
 export interface RemoteStoreState {
   isPaired: boolean;
@@ -10,6 +12,7 @@ export interface RemoteStoreState {
   connectionStatus: 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
   clientCount: number;
   remoteNowPlaying: RemoteNowPlayingState | null;
+  clientCompletedDownloads: string[];
 
   startHostSession: () => Promise<{ sessionId: string; pinCode: string }>;
   connectAsClient: (sessionId: string, pin?: string) => Promise<void>;
@@ -18,6 +21,7 @@ export interface RemoteStoreState {
   syncHostPlayback: (state: RemoteNowPlayingState) => void;
   syncHostUserContext: (context: RemoteUserContext) => void;
   setHostCommandListener: (listener: (msg: RemoteMessage) => void) => () => void;
+  setHostNavigateCallback: (cb: ((path: string) => void) | null) => void;
   disconnect: () => void;
   checkAutoReconnect: () => Promise<void>;
 }
@@ -28,10 +32,26 @@ let activeSocket: WebSocket | null = null;
 let reconnectTimer: any = null;
 let heartbeatInterval: any = null;
 let hostCommandListener: ((msg: RemoteMessage) => void) | null = null;
+let hostNavigateCallback: ((path: string) => void) | null = null;
 
 function getWebSocketUrl(path: string): string {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${window.location.host}${path}`;
+}
+
+function getCompletedDownloadIds(): string[] {
+  try {
+    const downloadStore = useDownloadStore.getState();
+    const tasks = downloadStore.tasks;
+    if (Object.keys(tasks).length === 0) {
+      downloadStore.initDownloads().catch(() => {});
+    }
+    return Object.values(tasks)
+      .filter((t) => t.status === 'completed')
+      .map((t) => t.id);
+  } catch {
+    return [];
+  }
 }
 
 export const useRemoteStore = create<RemoteStoreState>((set, get) => {
@@ -97,6 +117,7 @@ export const useRemoteStore = create<RemoteStoreState>((set, get) => {
             progress: message.payload.progress,
             isHydrated: true,
           });
+          set({ clientCompletedDownloads: message.payload.completedDownloads || [] });
         } else if (message.type === 'SESSION_PAIRED') {
           set({ clientCount: message.payload.clientCount });
           // If host, immediately push userContext and nowPlaying to connected client
@@ -106,6 +127,7 @@ export const useRemoteStore = create<RemoteStoreState>((set, get) => {
               favorites: pb.favorites,
               watchedSummary: pb.watchedSummary,
               progress: pb.progress,
+              completedDownloads: getCompletedDownloadIds(),
             });
             const np = get().remoteNowPlaying;
             if (np) {
@@ -127,6 +149,7 @@ export const useRemoteStore = create<RemoteStoreState>((set, get) => {
               favorites: pb.favorites,
               watchedSummary: pb.watchedSummary,
               progress: pb.progress,
+              completedDownloads: getCompletedDownloadIds(),
             });
             const np = get().remoteNowPlaying;
             if (np) {
@@ -139,7 +162,34 @@ export const useRemoteStore = create<RemoteStoreState>((set, get) => {
               favorites: pb.favorites,
               watchedSummary: pb.watchedSummary,
               progress: pb.progress,
+              completedDownloads: getCompletedDownloadIds(),
             });
+          } else if (message.type === 'COMMAND_PLAY_MEDIA') {
+            const { id, name, url, logo, isVod, seriesContext } = message.payload;
+            const downloadTasks = useDownloadStore.getState().tasks;
+
+            const candidateIds = [
+              id,
+              `movie_${id}`,
+              seriesContext ? `${seriesContext.seriesId}_s${seriesContext.season}_e${seriesContext.episodeIndex}` : null,
+            ].filter(Boolean) as string[];
+
+            const matchingTask = candidateIds.map((cid) => downloadTasks[cid]).find((t) => t?.status === 'completed');
+
+            useUiStore.getState().setSelectedChannel({
+              id,
+              name,
+              url,
+              logo,
+              isVod: !!isVod,
+              seriesContext,
+              offlineFileName: matchingTask?.fileName,
+              isOffline: !!matchingTask,
+            } as any);
+
+            if (hostNavigateCallback) {
+              hostNavigateCallback('/player');
+            }
           }
         }
 
@@ -199,6 +249,7 @@ export const useRemoteStore = create<RemoteStoreState>((set, get) => {
     connectionStatus: 'disconnected',
     clientCount: 0,
     remoteNowPlaying: null,
+    clientCompletedDownloads: [],
 
     startHostSession: async () => {
       try {
@@ -264,7 +315,11 @@ export const useRemoteStore = create<RemoteStoreState>((set, get) => {
 
     syncHostUserContext: (context: RemoteUserContext) => {
       if (get().role === 'host' && activeSocket && activeSocket.readyState === WebSocket.OPEN) {
-        activeSocket.send(JSON.stringify({ type: 'SYNC_USER_CONTEXT', payload: context }));
+        const fullContext: RemoteUserContext = {
+          ...context,
+          completedDownloads: context.completedDownloads || getCompletedDownloadIds(),
+        };
+        activeSocket.send(JSON.stringify({ type: 'SYNC_USER_CONTEXT', payload: fullContext }));
       }
     },
 
@@ -275,6 +330,10 @@ export const useRemoteStore = create<RemoteStoreState>((set, get) => {
           hostCommandListener = null;
         }
       };
+    },
+
+    setHostNavigateCallback: (cb: ((path: string) => void) | null) => {
+      hostNavigateCallback = cb;
     },
 
     disconnect: () => {
@@ -330,6 +389,23 @@ usePlaybackStore.subscribe((state, prevState) => {
         favorites: state.favorites,
         watchedSummary: state.watchedSummary,
         progress: state.progress,
+        completedDownloads: getCompletedDownloadIds(),
+      });
+    }
+  }
+});
+
+// Auto-sync host downloads whenever downloadStore changes
+useDownloadStore.subscribe((state, prevState) => {
+  const remote = useRemoteStore.getState();
+  if (remote.role === 'host' && remote.isPaired && remote.clientCount > 0) {
+    if (state.tasks !== prevState.tasks) {
+      const pb = usePlaybackStore.getState();
+      remote.syncHostUserContext({
+        favorites: pb.favorites,
+        watchedSummary: pb.watchedSummary,
+        progress: pb.progress,
+        completedDownloads: getCompletedDownloadIds(),
       });
     }
   }

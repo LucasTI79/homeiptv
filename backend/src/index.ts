@@ -32,6 +32,7 @@ import { adminRouter } from './routes/admin';
 import { miscRouter } from './routes/misc';
 import { notificationsRouter } from './routes/notifications';
 import { diagnosticsRouter } from './routes/diagnostics';
+import { downloadsRouter } from './routes/downloads';
 import { cleanupInactiveStreams, setBroadcastAdminUpdate } from './state/streamState';
 import { broadcastAdminUpdateImpl } from './state/sseState';
 
@@ -119,6 +120,7 @@ app.use('/api', adminRouter);
 app.use('/api', miscRouter);
 app.use('/api', notificationsRouter);
 app.use('/api', diagnosticsRouter);
+app.use('/api', downloadsRouter);
 
 const remoteHub = new MemoryRemoteSessionHub();
 app.use('/api/remote', createRemoteRouter(remoteHub));

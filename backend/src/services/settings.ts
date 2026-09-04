@@ -13,6 +13,7 @@ const VALID_FFMPEG_LOG_LEVELS: FfmpegLogLevel[] = ['debug', 'verbose', 'info', '
 export const defaultSettings: Settings = {
   m3uSources: [],
   epgSources: [],
+  localMediaFolders: [],
   userAgents: [{ id: 'default-ua-1724778434000', name: 'ViniPlay Default', value: 'VLC/3.0.20 (Linux; x86_64)', isDefault: true }],
   streamProfiles: [
     { id: 'redirect', name: 'Redirect (No Transcoding)', command: 'redirect', isDefault: true },
@@ -150,6 +151,11 @@ function migrate(settings: Settings): { settings: Settings; needsSave: boolean }
 
   if (!settings.vodPlaybackEngine) {
     settings.vodPlaybackEngine = defaultSettings.vodPlaybackEngine;
+    needsSave = true;
+  }
+
+  if (!settings.localMediaFolders) {
+    settings.localMediaFolders = [];
     needsSave = true;
   }
 

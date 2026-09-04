@@ -9,7 +9,8 @@ export interface VodItem {
   logo: string;
   url?: string; // Movies only
   description?: string;
-  year?: string;
+  year?: string | number | null;
+  isLocal?: boolean;
 }
 
 export interface VodLibrary {

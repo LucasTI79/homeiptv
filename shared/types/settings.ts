@@ -73,9 +73,24 @@ export interface EpgSource {
   lastUpdated?: string;
 }
 
+export interface LocalMediaFolder {
+  id: string;
+  name: string;
+  path: string;
+  category?: string;
+  isActive: boolean;
+  lastScanned?: string;
+  itemCount?: {
+    movies: number;
+    series: number;
+    episodes: number;
+  };
+}
+
 export interface Settings {
   m3uSources: M3uSource[];
   epgSources: EpgSource[];
+  localMediaFolders?: LocalMediaFolder[];
   userAgents: UserAgentProfile[];
   streamProfiles: StreamProfile[];
   dvr: DvrSettings;

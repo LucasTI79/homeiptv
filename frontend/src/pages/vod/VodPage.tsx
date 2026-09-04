@@ -10,7 +10,7 @@ import { GuideTour } from '../../components/ui/GuideTour';
 import { VodSkeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { SeriesModal, type PlayEpisodeOptions } from '../../components/vod/SeriesModal';
-import { FiPlay, FiX, FiHeart, FiClock, FiDownload, FiCheckCircle, FiLoader, FiInfo, FiTrash2, FiCheck } from 'react-icons/fi';
+import { FiPlay, FiX, FiHeart, FiClock, FiDownload, FiCheckCircle, FiLoader, FiInfo, FiTrash2, FiCheck, FiFolder } from 'react-icons/fi';
 import { FaHeart } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 import { useRemoteStore } from '../../store/remoteStore';
@@ -606,6 +606,12 @@ export function VodPage() {
                       <span className="bg-black/75 px-2 py-0.5 rounded text-[11px] font-semibold text-gray-200">
                         {item.type === 'movie' ? 'Movie' : 'Series'}
                       </span>
+                      {item.isLocal && (
+                        <span className="bg-amber-600/95 text-white px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shadow-sm">
+                          <FiFolder className="w-2.5 h-2.5" />
+                          <span>Local PC</span>
+                        </span>
+                      )}
                       {item.type === 'series' && (() => {
                         const watchedCount = watchedSummary.seriesCounts[item.id] || 0;
                         if (watchedCount > 0) {

@@ -6,6 +6,7 @@ import { requireAuth } from '../middleware/auth';
 import { getSettings } from '../services/settings';
 import { XtreamClient } from '../services/xtreamClient';
 import { refreshVodContent, processM3uVod } from '../services/vodProcessor';
+import { getLocalMediaIndex } from '../services/localMediaScanner';
 import type { M3uSource } from '@homeiptv/shared-types';
 
 // Ports the four /api/vod/* routes from server.js:2198-2357, 2362-2567,
@@ -78,63 +79,127 @@ vodRouter.get('/vod/library', requireAuth, async (req, res) => {
 
     const providerMap = buildProviderMap(activeXcProviders);
     const activeProviderIds = Array.from(providerMap.keys());
-    if (activeProviderIds.length === 0) {
-      return res.json({ movies: [], series: [] });
+
+    let processedMovies: Array<{
+      id: string;
+      name: string;
+      year: number | null;
+      description?: string | null;
+      logo?: string | null;
+      tmdb_id?: string | number | null;
+      imdb_id?: string | number | null;
+      url: string;
+      type: 'movie';
+      group: string;
+      isLocal?: boolean;
+    }> = [];
+
+    let processedSeries: Array<{
+      id: string;
+      name: string;
+      year: number | null;
+      description?: string | null;
+      logo?: string | null;
+      tmdb_id?: string | number | null;
+      imdb_id?: string | number | null;
+      provider_id?: string;
+      type: 'series';
+      group: string;
+      isLocal?: boolean;
+    }> = [];
+
+    if (activeProviderIds.length > 0) {
+      const movies = await db('movies as m')
+        .join('provider_movie_relations as r', 'm.id', 'r.movie_id')
+        .whereIn('r.provider_id', activeProviderIds)
+        .select('m.provider_unique_id', 'm.name', 'm.year', 'm.description', 'm.logo', 'm.tmdb_id', 'm.imdb_id', 'm.category_name', 'r.stream_id', 'r.container_extension', 'r.provider_id')
+        .orderBy('m.name');
+
+      processedMovies = movies
+        .map((m) => {
+          const provider = providerMap.get(m.provider_id);
+          if (!provider) return null;
+
+          if (allowedSources) {
+            const perms = allowedSources[m.provider_id];
+            if (perms?.allowed) {
+              const allowedGroups = perms.groups || [];
+              if (allowedGroups.length > 0 && !allowedGroups.includes(m.category_name)) return null;
+            }
+          }
+
+          const ext = m.container_extension || 'mp4';
+          return {
+            id: m.provider_unique_id,
+            name: m.name,
+            year: m.year,
+            description: m.description,
+            logo: m.logo,
+            tmdb_id: m.tmdb_id,
+            imdb_id: m.imdb_id,
+            url: `${provider.baseUrl}/movie/${provider.username}/${provider.password}/${m.stream_id}.${ext}`,
+            type: 'movie' as const,
+            group: m.category_name,
+          };
+        })
+        .filter((m): m is NonNullable<typeof m> => m !== null);
+
+      const seriesList = await db('series as s')
+        .join('provider_series_relations as r', 's.id', 'r.series_id')
+        .whereIn('r.provider_id', activeProviderIds)
+        .distinct('s.provider_unique_id', 's.name', 's.year', 's.description', 's.logo', 's.tmdb_id', 's.imdb_id', 's.category_name', 'r.provider_id')
+        .orderBy('s.name');
+
+      processedSeries = seriesList
+        .map((series) => {
+          if (allowedSources) {
+            const perms = allowedSources[series.provider_id];
+            if (perms?.allowed) {
+              const allowedGroups = perms.groups || [];
+              if (allowedGroups.length > 0 && !allowedGroups.includes(series.category_name)) return null;
+            }
+          }
+          return { ...series, type: 'series' as const, id: series.provider_unique_id, group: series.category_name };
+        })
+        .filter((s): s is NonNullable<typeof s> => s !== null);
     }
 
-    const movies = await db('movies as m')
-      .join('provider_movie_relations as r', 'm.id', 'r.movie_id')
-      .whereIn('r.provider_id', activeProviderIds)
-      .select('m.provider_unique_id', 'm.name', 'm.year', 'm.description', 'm.logo', 'm.tmdb_id', 'm.imdb_id', 'm.category_name', 'r.stream_id', 'r.container_extension', 'r.provider_id')
-      .orderBy('m.name');
-
-    const processedMovies = movies
-      .map((m) => {
-        const provider = providerMap.get(m.provider_id);
-        if (!provider) return null;
-
-        if (allowedSources) {
-          const perms = allowedSources[m.provider_id];
-          if (perms?.allowed) {
-            const allowedGroups = perms.groups || [];
-            if (allowedGroups.length > 0 && !allowedGroups.includes(m.category_name)) return null;
-          }
-        }
-
-        const ext = m.container_extension || 'mp4';
-        return {
-          id: m.provider_unique_id,
-          name: m.name,
-          year: m.year,
-          description: m.description,
-          logo: m.logo,
-          tmdb_id: m.tmdb_id,
-          imdb_id: m.imdb_id,
-          url: `${provider.baseUrl}/movie/${provider.username}/${provider.password}/${m.stream_id}.${ext}`,
+    // Merge local media items from localMediaScanner index
+    try {
+      const localIndex = getLocalMediaIndex();
+      for (const lm of localIndex.movies) {
+        processedMovies.push({
+          id: lm.id,
+          name: lm.name,
+          year: lm.year,
+          description: lm.name,
+          logo: lm.logo,
+          tmdb_id: null,
+          imdb_id: null,
+          url: `/api/local-media/stream?id=${lm.id}`,
           type: 'movie',
-          group: m.category_name,
-        };
-      })
-      .filter((m): m is NonNullable<typeof m> => m !== null);
-
-    const seriesList = await db('series as s')
-      .join('provider_series_relations as r', 's.id', 'r.series_id')
-      .whereIn('r.provider_id', activeProviderIds)
-      .distinct('s.provider_unique_id', 's.name', 's.year', 's.description', 's.logo', 's.tmdb_id', 's.imdb_id', 's.category_name', 'r.provider_id')
-      .orderBy('s.name');
-
-    const processedSeries = seriesList
-      .map((series) => {
-        if (allowedSources) {
-          const perms = allowedSources[series.provider_id];
-          if (perms?.allowed) {
-            const allowedGroups = perms.groups || [];
-            if (allowedGroups.length > 0 && !allowedGroups.includes(series.category_name)) return null;
-          }
-        }
-        return { ...series, type: 'series', id: series.provider_unique_id, group: series.category_name };
-      })
-      .filter((s): s is NonNullable<typeof s> => s !== null);
+          group: `📁 ${lm.category || 'Mídia Local'}`,
+          isLocal: true,
+        });
+      }
+      for (const ls of localIndex.series) {
+        processedSeries.push({
+          id: ls.id,
+          name: ls.name,
+          year: ls.year,
+          description: `${ls.seasonsCount} temporada(s), ${ls.episodesCount} episódio(s)`,
+          logo: ls.logo,
+          tmdb_id: null,
+          imdb_id: null,
+          provider_id: 'local',
+          type: 'series',
+          group: `📁 ${ls.category || 'Séries Locais'}`,
+          isLocal: true,
+        });
+      }
+    } catch (localErr) {
+      console.warn('[API_VOD] Error loading local media index into library:', localErr);
+    }
 
     const uniqueCategories = new Set<string>();
     processedMovies.forEach((m) => { if (m.group) uniqueCategories.add(m.group); });
@@ -151,6 +216,44 @@ const pendingSeriesFetches = new Map<number, Promise<void>>();
 
 vodRouter.get('/vod/series/:seriesId', requireAuth, async (req, res) => {
   const seriesIdParam = req.params.seriesId;
+
+  // Handle local series requests
+  if (seriesIdParam.startsWith('local_series_')) {
+    try {
+      const localIndex = getLocalMediaIndex();
+      const seriesInfo = localIndex.series.find((s) => s.id === seriesIdParam);
+      if (!seriesInfo) {
+        return res.status(404).json({ error: 'Série local não encontrada.' });
+      }
+
+      const episodes = localIndex.episodes.filter((e) => e.seriesId === seriesIdParam);
+      const seasons: Record<string, unknown[]> = {};
+
+      for (const ep of episodes) {
+        const sKey = String(ep.season || 1);
+        if (!seasons[sKey]) seasons[sKey] = [];
+        seasons[sKey].push({
+          id: ep.id,
+          name: ep.name,
+          description: '',
+          air_date: null,
+          season: ep.season,
+          episode: ep.episode,
+          url: `/api/local-media/stream?id=${ep.id}`,
+        });
+      }
+
+      return res.json({
+        id: seriesInfo.id,
+        name: seriesInfo.name,
+        logo: seriesInfo.logo || '',
+        seasons,
+      });
+    } catch (err) {
+      console.error('[API_VOD_SERIES] Error retrieving local series:', err);
+      return res.status(500).json({ error: 'Erro ao carregar série local.' });
+    }
+  }
 
   try {
     const seriesInfo = await db('series').where({ provider_unique_id: seriesIdParam }).first();

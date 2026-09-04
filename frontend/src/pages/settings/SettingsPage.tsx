@@ -11,6 +11,7 @@ import { DiagnosticsTab } from '../../components/settings/DiagnosticsTab';
 import { ProfilesTab } from '../../components/settings/ProfilesTab';
 import { UsersTab } from '../../components/settings/UsersTab';
 import { LogsTab } from '../../components/settings/LogsTab';
+import { LocalFoldersTab } from '../../components/settings/LocalFoldersTab';
 
 const settingsSchema = z.object({
   timezoneOffset: z.coerce.number(),
@@ -39,7 +40,7 @@ export function SettingsPage() {
   const { data: hardware } = useHardwareInfo();
   
   const saveMutation = useSaveGlobalSettings();
-  const [activeTab, setActiveTab] = useState<'general' | 'dvr' | 'logs' | 'profiles' | 'sources' | 'users' | 'diagnostics'>('sources');
+  const [activeTab, setActiveTab] = useState<'general' | 'dvr' | 'logs' | 'profiles' | 'sources' | 'localMedia' | 'users' | 'diagnostics'>('sources');
 
   const { register, handleSubmit, reset, formState: { errors, isDirty } } = useForm<SettingsFormValues>({
     resolver: zodResolver(settingsSchema) as Resolver<SettingsFormValues>,
@@ -108,6 +109,7 @@ export function SettingsPage() {
       
       <div id="settings-tabs" className="flex overflow-x-auto border-b border-gray-700 mb-6 pb-2">
         <button onClick={() => setActiveTab('sources')} className={`px-4 py-2 font-semibold whitespace-nowrap ${activeTab === 'sources' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-gray-400'}`}>Playlists &amp; Sources</button>
+        <button onClick={() => setActiveTab('localMedia')} className={`px-4 py-2 font-semibold whitespace-nowrap ${activeTab === 'localMedia' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-gray-400'}`}>Pastas Locais de Vídeo</button>
         <button onClick={() => setActiveTab('general')} className={`px-4 py-2 font-semibold whitespace-nowrap ${activeTab === 'general' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-gray-400'}`}>General</button>
         <button onClick={() => setActiveTab('profiles')} className={`px-4 py-2 font-semibold whitespace-nowrap ${activeTab === 'profiles' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-gray-400'}`}>Profiles</button>
         <button onClick={() => setActiveTab('dvr')} className={`px-4 py-2 font-semibold whitespace-nowrap ${activeTab === 'dvr' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-gray-400'}`}>DVR &amp; Storage</button>
@@ -118,6 +120,10 @@ export function SettingsPage() {
 
       {activeTab === 'sources' && (
         <SourcesTab settings={config?.settings} />
+      )}
+
+      {activeTab === 'localMedia' && (
+        <LocalFoldersTab />
       )}
 
       {activeTab === 'diagnostics' && (

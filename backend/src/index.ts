@@ -33,6 +33,7 @@ import { miscRouter } from './routes/misc';
 import { notificationsRouter } from './routes/notifications';
 import { diagnosticsRouter } from './routes/diagnostics';
 import { downloadsRouter } from './routes/downloads';
+import { localMediaRouter } from './routes/localMedia';
 import { cleanupInactiveStreams, setBroadcastAdminUpdate } from './state/streamState';
 import { broadcastAdminUpdateImpl } from './state/sseState';
 
@@ -121,6 +122,7 @@ app.use('/api', miscRouter);
 app.use('/api', notificationsRouter);
 app.use('/api', diagnosticsRouter);
 app.use('/api', downloadsRouter);
+app.use('/api', localMediaRouter);
 
 const remoteHub = new MemoryRemoteSessionHub();
 app.use('/api/remote', createRemoteRouter(remoteHub));

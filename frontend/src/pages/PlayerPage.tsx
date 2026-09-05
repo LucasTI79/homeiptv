@@ -8,7 +8,7 @@ import { GuideTour } from '../components/ui/GuideTour';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useCast } from '../components/cast/CastProvider';
 import { usePlaybackStore } from '../store/playbackStore';
-import { FiCast, FiRotateCcw, FiRotateCw, FiPlay, FiX, FiHardDrive, FiSmartphone, FiGlobe, FiTv, FiSkipBack, FiSkipForward } from 'react-icons/fi';
+import { FiCast, FiRotateCcw, FiRotateCw, FiPlay, FiX, FiHardDrive, FiSmartphone, FiGlobe, FiTv, FiSkipBack, FiSkipForward, FiZap } from 'react-icons/fi';
 import { RemotePairingModal } from '../components/remote/RemotePairingModal';
 import { useRemoteStore } from '../store/remoteStore';
 import { SkipIntroOverlay } from '../components/vod/SkipIntroOverlay';
@@ -53,6 +53,8 @@ export function PlayerPage() {
   const storedProgress = usePlaybackStore((s) => s.progress);
   const favorites = usePlaybackStore((s) => s.favorites);
   const watchedSummary = usePlaybackStore((s) => s.watchedSummary);
+  const markEpisodeWatched = usePlaybackStore((s) => s.markEpisodeWatched);
+  const removeProgress = usePlaybackStore((s) => s.removeProgress);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<mpegts.Player | null>(null);
@@ -86,6 +88,31 @@ export function PlayerPage() {
   const [retryNonce, setRetryNonce] = useState(0);
   const [isOfflineMedia, setIsOfflineMedia] = useState(false);
   const [isPairingModalOpen, setIsPairingModalOpen] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('viniplay_playback_speed');
+      return saved ? parseFloat(saved) || 1.0 : 1.0;
+    } catch {
+      return 1.0;
+    }
+  });
+  const [isSpeedMenuOpen, setIsSpeedMenuOpen] = useState(false);
+  const speedMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close speed menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (speedMenuRef.current && !speedMenuRef.current.contains(e.target as Node)) {
+        setIsSpeedMenuOpen(false);
+      }
+    };
+    if (isSpeedMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isSpeedMenuOpen]);
 
   const isLocalMedia = Boolean(
     selectedChannel?.isLocal ||
@@ -98,6 +125,13 @@ export function PlayerPage() {
   const hasCheckedResumeRef = useRef<boolean>(false);
   const realVodDurationRef = useRef<number | null>(null);
   const lastCastedKeyRef = useRef<string | null>(null);
+
+  // Keep video playbackRate synchronized with playbackSpeed
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.playbackRate = playbackSpeed;
+    }
+  }, [playbackSpeed, selectedChannel]);
 
   // Probe real duration for VOD items (essential for local media and transcoded streams)
   useEffect(() => {
@@ -510,6 +544,27 @@ export function PlayerPage() {
     }
   };
 
+  // Helper to determine item ID in progress store
+  const getProgressItemId = useCallback(() => {
+    if (!selectedChannel) return '';
+    if (selectedChannel.seriesContext) {
+      return `${selectedChannel.seriesContext.seriesId}_s${selectedChannel.seriesContext.season}_e${selectedChannel.seriesContext.episodeIndex}`;
+    }
+    return selectedChannel.id;
+  }, [selectedChannel]);
+
+  // Adjust playback speed handler
+  const handleSpeedChange = useCallback((newSpeed: number) => {
+    const rounded = Math.round(Math.max(0.25, Math.min(2.5, newSpeed)) * 100) / 100;
+    setPlaybackSpeed(rounded);
+    try {
+      localStorage.setItem('viniplay_playback_speed', String(rounded));
+    } catch {}
+    if (videoRef.current) {
+      videoRef.current.playbackRate = rounded;
+    }
+  }, []);
+
   // Restart video from beginning
   const handleRestart = useCallback(() => {
     if (isCasting) {
@@ -597,6 +652,31 @@ export function PlayerPage() {
 
     if (!next) return;
 
+    // Mark current episode that was playing as completed/watched
+    const currentId = getProgressItemId();
+    if (currentId && selectedChannel) {
+      if (selectedChannel.seriesContext) {
+        markEpisodeWatched({
+          id: currentId,
+          seriesId: selectedChannel.seriesContext.seriesId,
+          seriesName: selectedChannel.seriesContext.seriesName,
+          season: String(selectedChannel.seriesContext.season),
+          episodeIndex: selectedChannel.seriesContext.episodeIndex,
+          title: selectedChannel.name,
+          mediaType: 'series',
+          autoMarked: true,
+        });
+      } else if (selectedChannel.isVod) {
+        markEpisodeWatched({
+          id: currentId,
+          title: selectedChannel.name,
+          mediaType: 'movie',
+          autoMarked: true,
+        });
+      }
+      removeProgress(currentId);
+    }
+
     // Compute what comes after the next episode if seriesContext exists
     let subsequentEpisode: { url: string; name: string; season: string; episodeIndex: number } | undefined;
     if (seriesContext) {
@@ -650,7 +730,7 @@ export function PlayerPage() {
       } : undefined,
       nextEpisode: subsequentEpisode,
     });
-  }, [selectedChannel, setSelectedChannel, saveProgress]);
+  }, [selectedChannel, setSelectedChannel, saveProgress, markEpisodeWatched, removeProgress, getProgressItemId]);
 
   const hasPrevEpisode = !!(selectedChannel?.seriesContext && selectedChannel.seriesContext.episodeIndex > 0);
   const hasNextEpisode = !!(
@@ -687,6 +767,7 @@ export function PlayerPage() {
       isCasting,
       hasPrevEpisode,
       hasNextEpisode,
+      playbackRate: playbackSpeed,
       seriesContext: selectedChannel.seriesContext,
       introDetection: activeIntroSegment
         ? { canSkip: true, introEnd: activeIntroSegment.endSec }
@@ -710,6 +791,7 @@ export function PlayerPage() {
     hasPrevEpisode,
     hasNextEpisode,
     activeIntroSegment,
+    playbackSpeed,
   ]);
 
   // Remote Control: Sincronização do contexto do usuário (Favoritos, Assistidos e Continuar Assistindo)
@@ -797,6 +879,8 @@ export function PlayerPage() {
         handlePlayPrevEpisode();
       } else if (msg.type === 'COMMAND_NEXT_EPISODE') {
         handlePlayNextEpisode();
+      } else if (msg.type === 'COMMAND_PLAYBACK_SPEED') {
+        handleSpeedChange(msg.payload.speed);
       } else if (msg.type === 'COMMAND_RESTART') {
         handleRestart();
       } else if (msg.type === 'COMMAND_DPAD') {
@@ -875,17 +959,9 @@ export function PlayerPage() {
     navigate,
     handlePlayPrevEpisode,
     handlePlayNextEpisode,
+    handleSpeedChange,
     handleRestart,
   ]);
-
-  // Helper to determine item ID in progress store
-  const getProgressItemId = useCallback(() => {
-    if (!selectedChannel) return '';
-    if (selectedChannel.seriesContext) {
-      return `${selectedChannel.seriesContext.seriesId}_s${selectedChannel.seriesContext.season}_e${selectedChannel.seriesContext.episodeIndex}`;
-    }
-    return selectedChannel.id;
-  }, [selectedChannel]);
 
   // Check for resume position when video metadata is loaded
   const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
@@ -908,6 +984,10 @@ export function PlayerPage() {
       });
     } else if (dur > 0) {
       setDuration(dur);
+    }
+
+    if (videoRef.current) {
+      videoRef.current.playbackRate = playbackSpeed;
     }
 
     if (selectedChannel?.isVod && !hasCheckedResumeRef.current) {
@@ -1385,6 +1465,35 @@ export function PlayerPage() {
             onPause={() => setIsPlaying(false)}
             onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
             onLoadedMetadata={handleLoadedMetadata}
+            onEnded={() => {
+              if (hasNextEpisode) {
+                handlePlayNextEpisode();
+              } else if (selectedChannel?.isVod) {
+                const currentId = getProgressItemId();
+                if (currentId) {
+                  if (selectedChannel.seriesContext) {
+                    markEpisodeWatched({
+                      id: currentId,
+                      seriesId: selectedChannel.seriesContext.seriesId,
+                      seriesName: selectedChannel.seriesContext.seriesName,
+                      season: String(selectedChannel.seriesContext.season),
+                      episodeIndex: selectedChannel.seriesContext.episodeIndex,
+                      title: selectedChannel.name,
+                      mediaType: 'series',
+                      autoMarked: true,
+                    });
+                  } else {
+                    markEpisodeWatched({
+                      id: currentId,
+                      title: selectedChannel.name,
+                      mediaType: 'movie',
+                      autoMarked: true,
+                    });
+                  }
+                  removeProgress(currentId);
+                }
+              }
+            }}
             onDurationChange={(e) => {
               // Se já temos a duração real confirmada para este VOD, NÃO sobrescrever com o buffer!
               if (realVodDurationRef.current && realVodDurationRef.current > 0) {
@@ -1614,7 +1723,92 @@ export function PlayerPage() {
               </div>
             </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
+            {/* Playback Speed Controller */}
+            <div className="relative" ref={speedMenuRef}>
+              <Tooltip content="Velocidade de Reprodução">
+                <button
+                  type="button"
+                  onClick={() => setIsSpeedMenuOpen((prev) => !prev)}
+                  className={`px-2 py-1 text-xs font-bold rounded-lg border transition-all flex items-center gap-1 cursor-pointer ${
+                    playbackSpeed !== 1.0
+                      ? 'bg-blue-600/30 text-blue-400 border-blue-500/50 shadow-sm'
+                      : 'bg-white/10 text-gray-300 border-white/10 hover:text-white hover:bg-white/20'
+                  }`}
+                  aria-label="Ajustar velocidade de reprodução"
+                >
+                  <FiZap className={`w-3.5 h-3.5 ${playbackSpeed !== 1.0 ? 'text-amber-400' : 'text-gray-400'}`} />
+                  <span>{playbackSpeed === 1 ? '1x' : `${playbackSpeed.toFixed(2)}x`}</span>
+                </button>
+              </Tooltip>
+
+              {isSpeedMenuOpen && (
+                <div className="absolute bottom-full mb-3 right-0 sm:right-auto sm:left-1/2 sm:-translate-x-1/2 w-64 bg-gray-900/95 border border-white/15 shadow-2xl rounded-2xl p-4 backdrop-blur-md text-white z-50 animate-fade-in flex flex-col gap-3">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                    <span className="text-xs font-semibold text-gray-300 flex items-center gap-1.5">
+                      <FiZap className="w-3.5 h-3.5 text-amber-400" />
+                      Velocidade
+                    </span>
+                    <span className="text-xs font-bold font-mono text-blue-400 bg-blue-500/15 border border-blue-500/30 px-2 py-0.5 rounded-md">
+                      {playbackSpeed.toFixed(2)}x
+                    </span>
+                  </div>
+
+                  {/* Presets: 1x, 1.25x, 1.5x, 2x */}
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {[1, 1.25, 1.5, 2].map((rate) => {
+                      const isSelected = Math.abs(playbackSpeed - rate) < 0.01;
+                      return (
+                        <button
+                          key={rate}
+                          type="button"
+                          onClick={() => handleSpeedChange(rate)}
+                          className={`py-1.5 text-xs font-semibold rounded-lg transition active:scale-95 ${
+                            isSelected
+                              ? 'bg-blue-600 text-white font-bold shadow-md shadow-blue-600/30'
+                              : 'bg-white/10 hover:bg-white/15 text-gray-300'
+                          }`}
+                        >
+                          {rate}x
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Fine Slider (0.05 step) with -0.05 and +0.05 buttons */}
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => handleSpeedChange(playbackSpeed - 0.05)}
+                      className="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 active:scale-95 text-white font-bold flex items-center justify-center text-xs transition"
+                      title="Diminuir 0.05x"
+                      aria-label="Diminuir velocidade 0.05x"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="range"
+                      min="0.25"
+                      max="2.00"
+                      step="0.05"
+                      value={playbackSpeed}
+                      onChange={(e) => handleSpeedChange(parseFloat(e.target.value))}
+                      className="flex-1 accent-blue-500 h-1.5 bg-gray-700 rounded-lg cursor-pointer"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleSpeedChange(playbackSpeed + 0.05)}
+                      className="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 active:scale-95 text-white font-bold flex items-center justify-center text-xs transition"
+                      title="Aumentar 0.05x"
+                      aria-label="Aumentar velocidade 0.05x"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {isAvailable && (
               <Tooltip content={isCasting ? 'Connected' : 'Cast'}>
                 <button

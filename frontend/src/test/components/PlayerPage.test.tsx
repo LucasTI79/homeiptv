@@ -78,4 +78,120 @@ describe('PlayerPage', () => {
     expect(screen.getByText('Downloaded Movie')).toBeInTheDocument();
     expect(await screen.findByText('Offline Local')).toBeInTheDocument();
   });
+
+  it('renders playback speed button and adjusts speed when preset is clicked', async () => {
+    const { useUiStore } = await import('../../store/uiStore');
+    vi.mocked(useUiStore).mockImplementation((selector: any) => {
+      const store = {
+        selectedChannel: {
+          id: 'test_vid',
+          name: 'Speed Test Video',
+          url: 'http://example.com/vid.mp4',
+          isVod: true,
+        },
+      };
+      return selector(store);
+    });
+
+    const { fireEvent } = await import('@testing-library/react');
+    renderWithProviders(<PlayerPage />);
+
+    // Playback speed button should be rendered
+    const speedBtn = screen.getByRole('button', { name: 'Ajustar velocidade de reprodução' });
+    expect(speedBtn).toBeInTheDocument();
+
+    // Click to open speed popover
+    fireEvent.click(speedBtn);
+
+    expect(screen.getByText('Velocidade')).toBeInTheDocument();
+    const btn15 = screen.getByRole('button', { name: '1.5x' });
+    expect(btn15).toBeInTheDocument();
+
+    // Click 1.5x
+    fireEvent.click(btn15);
+
+    const videoElement = document.querySelector('video');
+    expect(videoElement?.playbackRate).toBe(1.5);
+  });
+
+  it('marks current episode as watched and removes progress when Next Episode is clicked', async () => {
+    const { usePlaybackStore } = await import('../../store/playbackStore');
+    const markEpisodeWatchedSpy = vi.fn();
+    const removeProgressSpy = vi.fn();
+    const saveProgressSpy = vi.fn();
+
+    usePlaybackStore.setState({
+      markEpisodeWatched: markEpisodeWatchedSpy,
+      removeProgress: removeProgressSpy,
+      saveProgress: saveProgressSpy,
+    });
+
+    const { useUiStore } = await import('../../store/uiStore');
+    const setSelectedChannelSpy = vi.fn();
+
+    vi.mocked(useUiStore).mockImplementation((selector: any) => {
+      const store = {
+        selectedChannel: {
+          id: 'series_1_s1_e0',
+          name: 'My Series - Ep 1',
+          url: 'http://example.com/ep1.mp4',
+          isVod: true,
+          vodType: 'series',
+          seriesContext: {
+            seriesId: 'series_1',
+            seriesName: 'My Series',
+            season: '1',
+            episodeIndex: 0,
+            episodes: [
+              { name: 'Ep 1', url: 'http://example.com/ep1.mp4' },
+              { name: 'Ep 2', url: 'http://example.com/ep2.mp4' },
+            ],
+          },
+          nextEpisode: {
+            url: 'http://example.com/ep2.mp4',
+            name: 'My Series - Ep 2',
+            season: '1',
+            episodeIndex: 1,
+          },
+        },
+        setSelectedChannel: setSelectedChannelSpy,
+      };
+      return selector(store);
+    });
+
+    const { fireEvent } = await import('@testing-library/react');
+    renderWithProviders(<PlayerPage />);
+
+    const nextEpBtn = screen.getByTitle('Próximo episódio');
+    expect(nextEpBtn).toBeInTheDocument();
+
+    fireEvent.click(nextEpBtn);
+
+    // Verify current episode was marked as watched
+    expect(markEpisodeWatchedSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'series_1_s1_e0',
+        seriesId: 'series_1',
+        seriesName: 'My Series',
+        season: '1',
+        episodeIndex: 0,
+        title: 'My Series - Ep 1',
+        mediaType: 'series',
+        autoMarked: true,
+      })
+    );
+
+    // Verify progress of the old episode was removed
+    expect(removeProgressSpy).toHaveBeenCalledWith('series_1_s1_e0');
+
+    // Verify progress for the new episode was initiated
+    expect(saveProgressSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'series_1_s1_e1',
+        seriesId: 'series_1',
+        currentTime: 0,
+      })
+    );
+  });
 });
+

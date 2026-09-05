@@ -15,6 +15,7 @@ import {
   FiPower,
   FiHardDrive,
   FiGlobe,
+  FiZap,
 } from 'react-icons/fi';
 import { useRemoteStore } from '../../store/remoteStore';
 import { RemoteDpadView } from './RemoteDpadView';
@@ -82,6 +83,12 @@ export const RemoteExpandedSheet: React.FC<RemoteExpandedSheetProps> = ({ isOpen
     sendCommand({ type: 'COMMAND_VOLUME', payload: { toggleMute: true } });
   };
 
+  const handlePlaybackSpeedChange = (speed: number) => {
+    triggerHaptic();
+    const clamped = Math.round(Math.max(0.25, Math.min(2.5, speed)) * 100) / 100;
+    sendCommand({ type: 'COMMAND_PLAYBACK_SPEED', payload: { speed: clamped } });
+  };
+
   const handleDisconnect = () => {
     triggerHaptic();
     disconnect();
@@ -96,6 +103,7 @@ export const RemoteExpandedSheet: React.FC<RemoteExpandedSheetProps> = ({ isOpen
   const canSkipIntro = remoteNowPlaying?.introDetection?.canSkip;
   const hasPrevEpisode = remoteNowPlaying?.hasPrevEpisode;
   const hasNextEpisode = remoteNowPlaying?.hasNextEpisode;
+  const playbackRate = remoteNowPlaying?.playbackRate ?? 1.0;
 
   const formatTime = (secs: number) => {
     if (!secs || isNaN(secs)) return '0:00';
@@ -428,6 +436,73 @@ export const RemoteExpandedSheet: React.FC<RemoteExpandedSheetProps> = ({ isOpen
                     className="w-8 h-8 rounded-xl bg-neutral-700/60 hover:bg-neutral-700 active:scale-95 text-white font-bold flex items-center justify-center transition-all flex-shrink-0 text-base shadow-xs"
                     aria-label="Aumentar volume 1%"
                     title="+1%"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              {/* Playback Speed Controls (Presets + Granular 0.05 Slider) */}
+              <div className="w-full flex flex-col gap-2.5 bg-neutral-800/60 p-3.5 rounded-2xl border border-neutral-800 mt-3">
+                <div className="flex items-center justify-between text-xs text-neutral-400 px-1">
+                  <span className="flex items-center gap-1.5 font-medium">
+                    <FiZap className="w-3.5 h-3.5 text-amber-400" />
+                    Velocidade de Reprodução
+                  </span>
+                  <span className="font-mono font-semibold text-neutral-200 bg-neutral-700/50 px-2 py-0.5 rounded-md">
+                    {playbackRate.toFixed(2)}x
+                  </span>
+                </div>
+
+                {/* Shortcuts: 1x, 1.25x, 1.5x, 2x */}
+                <div className="grid grid-cols-4 gap-2">
+                  {[1, 1.25, 1.5, 2].map((spd) => {
+                    const isActive = Math.abs(playbackRate - spd) < 0.01;
+                    return (
+                      <button
+                        key={spd}
+                        type="button"
+                        onClick={() => handlePlaybackSpeedChange(spd)}
+                        className={`py-1.5 text-xs font-semibold rounded-xl active:scale-95 transition-all ${
+                          isActive
+                            ? 'bg-primary-600 text-white shadow-md shadow-primary-600/30'
+                            : 'bg-neutral-700/60 hover:bg-neutral-700 text-neutral-300'
+                        }`}
+                      >
+                        {spd}x
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Slider (0.05 step) with -0.05 / +0.05 buttons */}
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handlePlaybackSpeedChange(playbackRate - 0.05)}
+                    className="w-8 h-8 rounded-xl bg-neutral-700/60 hover:bg-neutral-700 active:scale-95 text-white font-bold flex items-center justify-center transition-all flex-shrink-0 text-base shadow-xs"
+                    aria-label="Diminuir velocidade 0.05x"
+                    title="-0.05x"
+                  >
+                    -
+                  </button>
+
+                  <input
+                    type="range"
+                    min="0.25"
+                    max="2.00"
+                    step="0.05"
+                    value={playbackRate}
+                    onChange={(e) => handlePlaybackSpeedChange(parseFloat(e.target.value))}
+                    className="flex-1 accent-primary-500 h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => handlePlaybackSpeedChange(playbackRate + 0.05)}
+                    className="w-8 h-8 rounded-xl bg-neutral-700/60 hover:bg-neutral-700 active:scale-95 text-white font-bold flex items-center justify-center transition-all flex-shrink-0 text-base shadow-xs"
+                    aria-label="Aumentar velocidade 0.05x"
+                    title="+0.05x"
                   >
                     +
                   </button>

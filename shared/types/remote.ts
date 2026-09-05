@@ -25,6 +25,7 @@ export interface RemoteNowPlayingState {
   };
   hasPrevEpisode?: boolean;
   hasNextEpisode?: boolean;
+  playbackRate?: number;
 }
 
 export interface RemoteSession {
@@ -58,6 +59,7 @@ export type RemoteMessage =
   | { type: 'COMMAND_PLAY_PAUSE' }
   | { type: 'COMMAND_SEEK'; payload: { deltaSeconds?: number; positionSeconds?: number } }
   | { type: 'COMMAND_VOLUME'; payload: { delta?: number; setVolume?: number; toggleMute?: boolean } }
+  | { type: 'COMMAND_PLAYBACK_SPEED'; payload: { speed: number } }
   | { type: 'COMMAND_PLAY_MEDIA'; payload: { id: string; name: string; url: string; logo?: string; isVod?: boolean; seriesContext?: any } }
   | { type: 'COMMAND_SKIP_INTRO' }
   | { type: 'COMMAND_PREV_EPISODE' }

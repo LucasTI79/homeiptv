@@ -2,11 +2,11 @@
   "name": "@homeiptv/backend",
   "version": "0.1.0",
   "private": true,
-  "main": "dist/index.js",
+  "main": "dist/src/index.js",
   "scripts": {
     "dev": "tsx watch --ignore '**/node_modules/**' src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js",
+    "start": "node dist/src/index.js",
     "typecheck": "tsc --noEmit",
     "migrate": "knex migrate:latest --knexfile src/db/knexfile.ts",
     "migrate:rollback": "knex migrate:rollback --knexfile src/db/knexfile.ts",

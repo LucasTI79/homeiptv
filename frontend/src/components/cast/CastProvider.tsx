@@ -162,93 +162,112 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
-    // If the Cast SDK was already loaded before this component mounted:
-    if (window.cast?.framework) {
-      setIsAvailable(true);
-      initializeCastApi();
-    }
-
-    // Add global callback for cast framework
-    window.__onGCastApiAvailable = (available: boolean) => {
+    const handleAvailable = (available: boolean) => {
+      console.log('[CAST] Framework available:', available, 'isSecureContext:', window.isSecureContext);
       setIsAvailable(available);
       if (available) {
         initializeCastApi();
       }
     };
 
+    if ((window as any).__isCastAvailable !== undefined) {
+      handleAvailable((window as any).__isCastAvailable);
+    } else if (window.cast?.framework) {
+      handleAvailable(true);
+    }
+
+    const listeners = ((window as any).__castAvailableListeners = (window as any).__castAvailableListeners || []);
+    listeners.push(handleAvailable);
+
+    const prevCallback = window.__onGCastApiAvailable;
+    window.__onGCastApiAvailable = (available: boolean) => {
+      (window as any).__isCastAvailable = available;
+      if (typeof prevCallback === 'function') {
+        try { prevCallback(available); } catch {}
+      }
+      handleAvailable(available);
+    };
+
     return () => {
-      if (window.__onGCastApiAvailable) {
-        delete window.__onGCastApiAvailable;
+      const idx = listeners.indexOf(handleAvailable);
+      if (idx !== -1) {
+        listeners.splice(idx, 1);
       }
     };
   }, []);
 
   const initializeCastApi = () => {
-    if (!cast?.framework) return;
+    const castFramework = (window as any).cast?.framework;
+    if (!castFramework) return;
 
-    const castContext = cast.framework.CastContext.getInstance();
+    const castContext = castFramework.CastContext.getInstance();
+    const chromeCast = (window as any).chrome?.cast;
     castContext.setOptions({
       receiverApplicationId: APPLICATION_ID,
-      autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED,
+      autoJoinPolicy: chromeCast?.AutoJoinPolicy?.ORIGIN_SCOPED || 1,
     });
 
     castContext.addEventListener(
-      cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
+      castFramework.CastContextEventType.SESSION_STATE_CHANGED,
       handleSessionStateChange
     );
 
-    castPlayerRef.current = new cast.framework.RemotePlayer();
-    castControllerRef.current = new cast.framework.RemotePlayerController(castPlayerRef.current);
+    const player = new castFramework.RemotePlayer();
+    const controller = new castFramework.RemotePlayerController(player);
+    castPlayerRef.current = player;
+    castControllerRef.current = controller;
 
-    castControllerRef.current.addEventListener(
-      cast.framework.RemotePlayerEventType.IS_CONNECTED_CHANGED,
+    controller.addEventListener(
+      castFramework.RemotePlayerEventType.IS_CONNECTED_CHANGED,
       () => {
-        setIsConnected(!!castPlayerRef.current?.isConnected);
+        setIsConnected(!!player.isConnected);
       }
     );
 
-    castControllerRef.current.addEventListener(
-      cast.framework.RemotePlayerEventType.IS_PAUSED_CHANGED,
+    controller.addEventListener(
+      castFramework.RemotePlayerEventType.IS_PAUSED_CHANGED,
       () => {
-        setIsPaused(!!castPlayerRef.current?.isPaused);
+        setIsPaused(!!player.isPaused);
       }
     );
 
-    castControllerRef.current.addEventListener(
-      cast.framework.RemotePlayerEventType.CURRENT_TIME_CHANGED,
+    controller.addEventListener(
+      castFramework.RemotePlayerEventType.CURRENT_TIME_CHANGED,
       () => {
-        setCastCurrentTime(castPlayerRef.current?.currentTime || 0);
+        setCastCurrentTime(player.currentTime || 0);
       }
     );
 
-    castControllerRef.current.addEventListener(
-      cast.framework.RemotePlayerEventType.DURATION_CHANGED,
+    controller.addEventListener(
+      castFramework.RemotePlayerEventType.DURATION_CHANGED,
       () => {
-        setCastDuration(castPlayerRef.current?.duration || 0);
+        setCastDuration(player.duration || 0);
       }
     );
 
-    castControllerRef.current.addEventListener(
-      cast.framework.RemotePlayerEventType.VOLUME_LEVEL_CHANGED,
+    controller.addEventListener(
+      castFramework.RemotePlayerEventType.VOLUME_LEVEL_CHANGED,
       () => {
-        setCastVolumeState(castPlayerRef.current?.volumeLevel ?? 1);
+        setCastVolumeState(player.volumeLevel ?? 1);
       }
     );
 
-    castControllerRef.current.addEventListener(
-      cast.framework.RemotePlayerEventType.IS_MUTED_CHANGED,
+    controller.addEventListener(
+      castFramework.RemotePlayerEventType.IS_MUTED_CHANGED,
       () => {
-        setCastIsMuted(!!castPlayerRef.current?.isMuted);
+        setCastIsMuted(!!player.isMuted);
       }
     );
   };
 
-  const handleSessionStateChange = (event: cast.framework.SessionStateEventData) => {
-    const castContext = cast.framework.CastContext.getInstance();
+  const handleSessionStateChange = (event: any) => {
+    const castFramework = (window as any).cast?.framework;
+    if (!castFramework) return;
+    const castContext = castFramework.CastContext.getInstance();
     const session = castContext.getCurrentSession();
     castSessionRef.current = session;
 
-    const SessionState = cast.framework.SessionState;
+    const SessionState = castFramework.SessionState;
 
     switch (event.sessionState) {
       case SessionState.SESSION_STARTED:

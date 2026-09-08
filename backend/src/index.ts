@@ -57,15 +57,43 @@ app.use(
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "https://www.gstatic.com"],
+        scriptSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "https://www.gstatic.com",
+          "http://www.gstatic.com",
+          "https://*.gstatic.com",
+          "http://*.gstatic.com",
+        ],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["*", "data:", "blob:"], // Allow images from any source and data URIs for M3U logos
         mediaSrc: ["*", "'self'", "blob:", "data:"], // Allow media streams and local proxies
-        connectSrc: ["'self'", "https://google.com", "ws:", "wss:"],
-        frameSrc: ["'none'"],
+        connectSrc: [
+          "'self'",
+          "https://google.com",
+          "http://google.com",
+          "https://*.google.com",
+          "http://*.google.com",
+          "https://*.gstatic.com",
+          "http://*.gstatic.com",
+          "ws:",
+          "wss:",
+        ],
+        frameSrc: [
+          "'self'",
+          "https://www.gstatic.com",
+          "http://www.gstatic.com",
+          "https://*.gstatic.com",
+          "http://*.gstatic.com",
+          "chrome-extension:",
+        ],
+        upgradeInsecureRequests: null,
       },
     },
     crossOriginResourcePolicy: { policy: 'cross-origin' },
+    crossOriginOpenerPolicy: false,
+    originAgentCluster: false,
+    strictTransportSecurity: false,
   })
 );
 

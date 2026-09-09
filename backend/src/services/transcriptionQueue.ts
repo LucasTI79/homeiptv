@@ -2,6 +2,7 @@ import ffmpeg from 'fluent-ffmpeg';
 import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
+import { resolveFromRepoRoot } from '../config/env';
 
 // Disable TS strict checks for whisper-node as it lacks type definitions
 const whisperNode = require('whisper-node');
@@ -89,7 +90,8 @@ class TranscriptionQueue {
       console.log(`[Transcription] Transcribing ${job.targetId}...`);
       
       const options = {
-        modelName: "tiny",       
+        modelName: "tiny",
+        modelPath: resolveFromRepoRoot('models/ggml-tiny.bin'),
         whisperOptions: {
           outputInText: false,   
           outputInVtt: false, 

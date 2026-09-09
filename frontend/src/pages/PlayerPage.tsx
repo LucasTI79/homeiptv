@@ -762,7 +762,9 @@ export function PlayerPage() {
     if (selectedChannel?.isVod) {
       const targetId = getProgressItemId();
       if (targetId) {
-        checkTranscriptionStatus(targetId);
+        if (!transcriptionJob) {
+          checkTranscriptionStatus(targetId);
+        }
         
         if (!transcriptionCheckIntervalRef.current && transcriptionJob && ['queued', 'extracting_audio', 'transcribing'].includes(transcriptionJob.status)) {
            transcriptionCheckIntervalRef.current = setInterval(() => {
@@ -2122,14 +2124,14 @@ export function PlayerPage() {
                         <button
                           type="button"
                           onClick={startTranscription}
-                          disabled={!!transcriptionJob}
+                          disabled={!!transcriptionJob && transcriptionJob.status !== 'failed'}
                           className="px-2 py-1 text-[10px] font-bold rounded bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition"
                         >
                           {transcriptionJob ? (
                             transcriptionJob.status === 'extracting_audio' ? 'Extraindo...' :
                             transcriptionJob.status === 'transcribing' ? 'Transcrevendo...' :
                             transcriptionJob.status === 'completed' ? 'IA Concluída' :
-                            transcriptionJob.status === 'failed' ? 'Falha na IA' : 'Na fila...'
+                            transcriptionJob.status === 'failed' ? 'Tentar Novamente' : 'Na fila...'
                           ) : 'Gerar via IA'}
                         </button>
                       )}

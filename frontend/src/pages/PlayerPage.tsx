@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import mpegts from 'mpegts.js';
+import Hls from 'hls.js';
 import { useUiStore } from '../store/uiStore';
 import { useConfig } from '../api/guide';
 import { Tooltip } from '../components/ui/Tooltip';
@@ -8,7 +9,7 @@ import { GuideTour } from '../components/ui/GuideTour';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useCast } from '../components/cast/CastProvider';
 import { usePlaybackStore } from '../store/playbackStore';
-import { FiCast, FiRotateCcw, FiRotateCw, FiPlay, FiX, FiHardDrive, FiSmartphone, FiGlobe, FiTv, FiSkipBack, FiSkipForward, FiZap } from 'react-icons/fi';
+import { FiCast, FiRotateCcw, FiRotateCw, FiPlay, FiX, FiHardDrive, FiSmartphone, FiGlobe, FiTv, FiSkipBack, FiSkipForward, FiZap, FiSettings } from 'react-icons/fi';
 import { RemotePairingModal } from '../components/remote/RemotePairingModal';
 import { useRemoteStore } from '../store/remoteStore';
 import { SkipIntroOverlay } from '../components/vod/SkipIntroOverlay';
@@ -88,6 +89,17 @@ export function PlayerPage() {
   const [retryNonce, setRetryNonce] = useState(0);
   const [isOfflineMedia, setIsOfflineMedia] = useState(false);
   const [isPairingModalOpen, setIsPairingModalOpen] = useState(false);
+  
+  const [audioTracks, setAudioTracks] = useState<any[]>([]);
+  const [subtitleTracks, setSubtitleTracks] = useState<any[]>([]);
+  const [videoLevels, setVideoLevels] = useState<any[]>([]);
+  const [activeAudioTrack, setActiveAudioTrack] = useState<number>(-1);
+  const [activeSubtitleTrack, setActiveSubtitleTrack] = useState<number>(-1);
+  const [activeVideoLevel, setActiveVideoLevel] = useState<number>(-1);
+  const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
+  const settingsMenuRef = useRef<HTMLDivElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
+
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('viniplay_playback_speed');
@@ -99,20 +111,61 @@ export function PlayerPage() {
   const [isSpeedMenuOpen, setIsSpeedMenuOpen] = useState(false);
   const speedMenuRef = useRef<HTMLDivElement>(null);
 
-  // Close speed menu when clicking outside
+  const [transcriptionJob, setTranscriptionJob] = useState<any>(null);
+  const transcriptionCheckIntervalRef = useRef<any>(null);
+
+  // Close menus when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (speedMenuRef.current && !speedMenuRef.current.contains(e.target as Node)) {
         setIsSpeedMenuOpen(false);
       }
+      if (settingsMenuRef.current && !settingsMenuRef.current.contains(e.target as Node)) {
+        setIsSettingsMenuOpen(false);
+      }
     };
-    if (isSpeedMenuOpen) {
+    if (isSpeedMenuOpen || isSettingsMenuOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [isSpeedMenuOpen]);
+  }, [isSpeedMenuOpen, isSettingsMenuOpen]);
+
+  const changeAudioTrack = (trackId: number) => {
+    if (hlsRef.current) {
+      hlsRef.current.audioTrack = trackId;
+      setActiveAudioTrack(trackId);
+    }
+  };
+
+  const changeSubtitleTrack = (trackId: any) => {
+    if (trackId === 'custom-ia') {
+      const track = videoRef.current?.querySelector('track#custom-subtitle') as HTMLTrackElement;
+      if (track) track.track.mode = 'showing';
+      if (hlsRef.current) hlsRef.current.subtitleDisplay = false;
+      setActiveSubtitleTrack(trackId);
+      return;
+    }
+
+    const track = videoRef.current?.querySelector('track#custom-subtitle') as HTMLTrackElement;
+    if (track) track.track.mode = 'hidden';
+
+    if (hlsRef.current) {
+      hlsRef.current.subtitleDisplay = true;
+      hlsRef.current.subtitleTrack = trackId as number;
+      setActiveSubtitleTrack(trackId as number);
+    } else {
+      setActiveSubtitleTrack(trackId);
+    }
+  };
+
+  const changeVideoLevel = (levelIndex: number) => {
+    if (hlsRef.current) {
+      hlsRef.current.currentLevel = levelIndex;
+      setActiveVideoLevel(levelIndex);
+    }
+  };
 
   const isLocalMedia = Boolean(
     selectedChannel?.isLocal ||
@@ -243,6 +296,67 @@ export function PlayerPage() {
 
       setIsOfflineMedia(false);
 
+      const isM3u8 = streamUrlToPlay.includes('.m3u8');
+
+      if (isM3u8 && Hls.isSupported() && videoRef.current) {
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: true,
+          backBufferLength: 90
+        });
+        hlsRef.current = hls;
+
+        hls.loadSource(streamUrlToPlay);
+        hls.attachMedia(videoRef.current);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
+          setVideoLevels(data.levels || []);
+          setActiveVideoLevel(hls.currentLevel);
+
+          setAudioTracks(hls.audioTracks || []);
+          setActiveAudioTrack(hls.audioTrack);
+
+          setSubtitleTracks(hls.subtitleTracks || []);
+          setActiveSubtitleTrack(hls.subtitleTrack);
+
+          Promise.resolve(videoRef.current?.play()).catch(e => {
+            if (e && (e.name === 'AbortError' || ('message' in e && e.message?.includes('AbortError')))) return;
+            console.error('HLS play error:', e);
+          });
+        });
+
+        hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (_event, data) => {
+          setActiveAudioTrack(data.id);
+        });
+
+        hls.on(Hls.Events.SUBTITLE_TRACK_SWITCH, (_event, data) => {
+          setActiveSubtitleTrack(data.id);
+        });
+
+        hls.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
+          setActiveVideoLevel(data.level);
+        });
+        
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (data.fatal) {
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                hls.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                hls.recoverMediaError();
+                break;
+              default:
+                hls.destroy();
+                setPlaybackError('HLS Error: ' + data.details);
+                break;
+            }
+          }
+        });
+
+        return;
+      }
+
       if (useNativeVod && videoRef.current) {
         // Native browser media element mode for VOD (mp4/mkv/hls)
         // Provides complete file duration, accurate seeking, and native buffering
@@ -319,6 +433,12 @@ export function PlayerPage() {
         } catch {
           // ignore
         }
+      }
+      if (hlsRef.current) {
+        try {
+          hlsRef.current.destroy();
+        } catch {}
+        hlsRef.current = null;
       }
       if (playerRef.current) {
         try {
@@ -552,6 +672,112 @@ export function PlayerPage() {
     }
     return selectedChannel.id;
   }, [selectedChannel]);
+
+  const loadCustomSubtitle = useCallback((targetId: string) => {
+    if (!videoRef.current) return;
+    const existing = videoRef.current.querySelector('track#custom-subtitle');
+    if (existing) existing.remove();
+
+    const track = document.createElement('track');
+    track.id = 'custom-subtitle';
+    track.kind = 'subtitles';
+    track.label = 'Legenda IA (Auto)';
+    track.srclang = 'pt';
+    track.src = `/api/vod/subtitles/${targetId}`;
+    track.default = true;
+    videoRef.current.appendChild(track);
+
+    setSubtitleTracks(prev => {
+      const filtered = prev.filter(t => t.id !== 'custom-ia');
+      return [...filtered, { id: 'custom-ia', name: 'Legenda IA (Auto)', lang: 'pt' }];
+    });
+  }, []);
+
+  const checkTranscriptionStatus = useCallback(async (targetId: string) => {
+    try {
+      const res = await fetch(`/api/vod/transcribe/${targetId}/status`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('viniplay_token') || ''}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTranscriptionJob(data.job);
+        if (data.job?.status === 'completed') {
+          loadCustomSubtitle(targetId);
+          if (transcriptionCheckIntervalRef.current) {
+            clearInterval(transcriptionCheckIntervalRef.current);
+            transcriptionCheckIntervalRef.current = null;
+          }
+        } else if (data.job?.status === 'failed') {
+          if (transcriptionCheckIntervalRef.current) {
+            clearInterval(transcriptionCheckIntervalRef.current);
+            transcriptionCheckIntervalRef.current = null;
+          }
+        }
+      } else {
+        if (transcriptionCheckIntervalRef.current) {
+          clearInterval(transcriptionCheckIntervalRef.current);
+          transcriptionCheckIntervalRef.current = null;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to check transcription status', e);
+    }
+  }, [loadCustomSubtitle]);
+
+  const startTranscription = async () => {
+    if (!selectedChannel) return;
+    const targetId = getProgressItemId();
+    if (!targetId) return;
+
+    const mediaUrl = selectedChannel.url;
+
+    try {
+      setTranscriptionJob({ status: 'queued' });
+      const res = await fetch('/api/vod/transcribe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('viniplay_token') || ''}`
+        },
+        body: JSON.stringify({ targetId, mediaUrl })
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        setTranscriptionJob(data.job);
+        
+        if (!transcriptionCheckIntervalRef.current) {
+          transcriptionCheckIntervalRef.current = setInterval(() => {
+            checkTranscriptionStatus(targetId);
+          }, 3000);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to start transcription', e);
+      setTranscriptionJob(null);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedChannel?.isVod) {
+      const targetId = getProgressItemId();
+      if (targetId) {
+        checkTranscriptionStatus(targetId);
+        
+        if (!transcriptionCheckIntervalRef.current && transcriptionJob && ['queued', 'extracting_audio', 'transcribing'].includes(transcriptionJob.status)) {
+           transcriptionCheckIntervalRef.current = setInterval(() => {
+             checkTranscriptionStatus(targetId);
+           }, 3000);
+        }
+      }
+    }
+    return () => {
+      if (transcriptionCheckIntervalRef.current) {
+        clearInterval(transcriptionCheckIntervalRef.current);
+        transcriptionCheckIntervalRef.current = null;
+      }
+    };
+  }, [selectedChannel, getProgressItemId, checkTranscriptionStatus, transcriptionJob]);
 
   // Adjust playback speed handler
   const handleSpeedChange = useCallback((newSpeed: number) => {
@@ -1857,6 +2083,112 @@ export function PlayerPage() {
                 <FiSmartphone className="w-6 h-6" />
               </button>
             </Tooltip>
+            {/* Settings Menu */}
+            <div className="relative" ref={settingsMenuRef}>
+              <Tooltip content="Configurações">
+                <button
+                  type="button"
+                  onClick={() => setIsSettingsMenuOpen(!isSettingsMenuOpen)}
+                  className={`p-1 transition-all ${isSettingsMenuOpen ? 'text-blue-400' : 'text-white hover:text-blue-400'}`}
+                >
+                  <FiSettings className={`w-6 h-6 ${isSettingsMenuOpen ? 'rotate-90' : ''} transition-transform`} />
+                </button>
+              </Tooltip>
+              {isSettingsMenuOpen && (
+                <div className="absolute bottom-full mb-3 right-0 w-64 bg-gray-900/95 border border-white/15 shadow-2xl rounded-2xl p-4 backdrop-blur-md text-white z-50 animate-fade-in flex flex-col gap-4 max-h-96 overflow-y-auto">
+                  {/* Audio */}
+                  {audioTracks.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wider">Áudio</h4>
+                      <div className="flex flex-col gap-1">
+                        {audioTracks.map((t) => (
+                          <button
+                            key={t.id}
+                            onClick={() => changeAudioTrack(t.id)}
+                            className={`text-left text-xs py-1.5 px-2 rounded-lg transition ${activeAudioTrack === t.id ? 'bg-blue-600 text-white font-bold' : 'hover:bg-white/10 text-gray-300'}`}
+                          >
+                            {t.name || t.lang || `Track ${t.id}`}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Subtitles */}
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Legendas</h4>
+                      {selectedChannel?.isVod && (
+                        <button
+                          type="button"
+                          onClick={startTranscription}
+                          disabled={!!transcriptionJob}
+                          className="px-2 py-1 text-[10px] font-bold rounded bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                        >
+                          {transcriptionJob ? (
+                            transcriptionJob.status === 'extracting_audio' ? 'Extraindo...' :
+                            transcriptionJob.status === 'transcribing' ? 'Transcrevendo...' :
+                            transcriptionJob.status === 'completed' ? 'IA Concluída' :
+                            transcriptionJob.status === 'failed' ? 'Falha na IA' : 'Na fila...'
+                          ) : 'Gerar via IA'}
+                        </button>
+                      )}
+                    </div>
+                    {subtitleTracks.length > 0 ? (
+                      <div className="flex flex-col gap-1">
+                        <button
+                          onClick={() => changeSubtitleTrack(-1)}
+                          className={`text-left text-xs py-1.5 px-2 rounded-lg transition ${activeSubtitleTrack === -1 ? 'bg-blue-600 text-white font-bold' : 'hover:bg-white/10 text-gray-300'}`}
+                        >
+                          Desativado
+                        </button>
+                        {subtitleTracks.map((t) => (
+                          <button
+                            key={t.id}
+                            onClick={() => changeSubtitleTrack(t.id)}
+                            className={`text-left text-xs py-1.5 px-2 rounded-lg transition ${activeSubtitleTrack === t.id ? 'bg-blue-600 text-white font-bold' : 'hover:bg-white/10 text-gray-300'}`}
+                          >
+                            {t.name || t.lang || `Track ${t.id}`}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-gray-500 italic px-2">Nenhuma legenda disponível</div>
+                    )}
+                  </div>
+
+                  {/* Quality */}
+                  {videoLevels.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wider">Qualidade</h4>
+                      <div className="flex flex-col gap-1">
+                        <button
+                          onClick={() => changeVideoLevel(-1)}
+                          className={`text-left text-xs py-1.5 px-2 rounded-lg transition ${activeVideoLevel === -1 ? 'bg-blue-600 text-white font-bold' : 'hover:bg-white/10 text-gray-300'}`}
+                        >
+                          Automático
+                        </button>
+                        {videoLevels.map((l, index) => (
+                          <button
+                            key={index}
+                            onClick={() => changeVideoLevel(index)}
+                            className={`text-left text-xs py-1.5 px-2 rounded-lg transition ${activeVideoLevel === index ? 'bg-blue-600 text-white font-bold' : 'hover:bg-white/10 text-gray-300'}`}
+                          >
+                            {l.height}p {l.bitrate ? `(${(l.bitrate / 1000000).toFixed(1)} Mbps)` : ''}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {audioTracks.length === 0 && subtitleTracks.length === 0 && videoLevels.length === 0 && (
+                    <div className="text-xs text-gray-400 text-center py-2">
+                      Nenhuma opção disponível para esta mídia.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             <Tooltip content={isPip ? 'Exit Picture-in-Picture' : 'Picture-in-Picture'}>
               <button id="pip-btn" onClick={togglePip} className="text-white hover:text-blue-400">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -11,7 +11,7 @@ import { GuidePage } from './pages/GuidePage';
 import { PlayerPage } from './pages/PlayerPage';
 import { VodPage } from './pages/vod/VodPage';
 import { DownloadsPage } from './pages/downloads/DownloadsPage';
-import { ComingSoonPage } from './pages/ComingSoonPage';
+
 import { AdminPage } from './pages/admin/AdminPage';
 import { SettingsPage } from './pages/settings/SettingsPage';
 import { NotificationPage } from './pages/notifications/NotificationPage';

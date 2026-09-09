@@ -10,6 +10,7 @@ import { DOWNLOADS_DIR } from '../config/paths';
 import { XtreamClient } from '../services/xtreamClient';
 import { refreshVodContent, processM3uVod } from '../services/vodProcessor';
 import { getLocalMediaIndex } from '../services/localMediaScanner';
+import { transcriptionQueue } from '../services/transcriptionQueue';
 import type { M3uSource } from '@homeiptv/shared-types';
 
 // Ports the four /api/vod/* routes from server.js:2198-2357, 2362-2567,
@@ -511,4 +512,64 @@ vodRouter.get('/vod/duration', allowLocalOrAuth(), (req, res) => {
     console.error(`[VOD_DURATION] ffprobe spawn error: ${err.message}`);
     res.status(500).json({ error: 'ffprobe failed to start' });
   });
+});
+
+vodRouter.get('/vod/subtitles/:id', requireAuth, (req, res) => {
+  const targetId = req.params.id;
+  const subtitlePath = transcriptionQueue.getSubtitlePath(targetId);
+  if (subtitlePath) {
+     res.sendFile(subtitlePath);
+  } else {
+     res.status(404).json({ error: 'Subtitle not found' });
+  }
+});
+
+vodRouter.post('/vod/transcribe', requireAuth, async (req, res) => {
+  const { targetId, mediaUrl } = req.body;
+  if (!targetId || !mediaUrl) {
+    return res.status(400).json({ error: 'Missing targetId or mediaUrl' });
+  }
+
+  let sourceUrl = mediaUrl;
+  if (sourceUrl.includes('/api/local-media/stream')) {
+    try {
+      const parsed = new URL(sourceUrl, 'http://localhost');
+      const mediaId = parsed.searchParams.get('id');
+      const fileParam = parsed.searchParams.get('file');
+      const localIndex = getLocalMediaIndex();
+      let resolvedFile: string | null = null;
+      if (mediaId) {
+        resolvedFile = localIndex.movies.find((m) => m.id === mediaId)?.filePath ||
+          localIndex.episodes.find((e) => e.id === mediaId)?.filePath || null;
+      } else if (fileParam) {
+        resolvedFile = path.resolve(fileParam);
+      }
+      if (resolvedFile && fs.existsSync(resolvedFile)) {
+        sourceUrl = resolvedFile;
+      }
+    } catch (e) {
+      console.warn('[VOD_TRANSCRIBE] Could not resolve local media path:', e);
+    }
+  }
+
+  try {
+    const job = await transcriptionQueue.enqueue(sourceUrl, targetId);
+    res.json({ success: true, job });
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+vodRouter.get('/vod/transcribe/:id/status', requireAuth, (req, res) => {
+  const targetId = req.params.id;
+  const job = transcriptionQueue.getJob(targetId);
+  if (job) {
+    res.json({ job });
+  } else {
+    if (transcriptionQueue.getSubtitlePath(targetId)) {
+       res.json({ job: { id: 'done', targetId, status: 'completed' } });
+    } else {
+       res.status(404).json({ error: 'Not found' });
+    }
+  }
 });

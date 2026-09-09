@@ -13,7 +13,7 @@ const configs: Record<string, Knex.Config> = {
   'better-sqlite3': {
     client: 'better-sqlite3',
     connection: {
-      filename: env.dbConnection || defaultSqlitePath,
+      filename: (env.dbConnection && !path.isAbsolute(env.dbConnection) ? path.resolve(process.cwd(), env.dbConnection) : env.dbConnection) || defaultSqlitePath,
     },
     pool: {
       afterCreate: (conn: { pragma: (p: string) => void }, cb: (err: Error | null, conn: unknown) => void) => {

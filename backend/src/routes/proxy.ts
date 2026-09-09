@@ -82,7 +82,7 @@ proxyRouter.get('/image-proxy', allowLocalOrAuth(), async (req, res) => {
   }
 
   const client = parsedUrl.protocol === 'https:' ? https : http;
-  client.get(imageUrl, {
+  const imageReq = client.get(imageUrl, {
     headers: { 'User-Agent': 'ViniPlay/1.0 (ImageProxy)' },
     lookup: (_hostname, lookupOptions, callback) => {
       if (lookupOptions && (lookupOptions as { all?: boolean }).all) {
@@ -105,6 +105,18 @@ proxyRouter.get('/image-proxy', allowLocalOrAuth(), async (req, res) => {
     imageRes.pipe(fileStream);
     imageRes.pipe(res);
 
+    const abortImageStreams = () => {
+      try {
+        imageRes.unpipe(res);
+        imageRes.destroy();
+        imageRes.socket?.destroy();
+        fileStream.destroy();
+      } catch {}
+    };
+
+    req.on('close', abortImageStreams);
+    res.on('close', abortImageStreams);
+
     fileStream.on('finish', () => {
       try {
         fs.writeFileSync(cacheMetaPath, JSON.stringify({ url: imageUrl, contentType, cachedAt: new Date().toISOString() }, null, 2));
@@ -113,9 +125,17 @@ proxyRouter.get('/image-proxy', allowLocalOrAuth(), async (req, res) => {
       }
     });
     fileStream.on('error', (err) => console.error('[IMAGE_PROXY] Error writing to cache:', err.message));
-  }).on('error', (err) => {
+  });
+
+  imageReq.on('error', (err) => {
     console.error(`[IMAGE_PROXY] Error fetching image from ${imageUrl}:`, err.message);
-    res.status(500).send('Failed to fetch image');
+    if (!res.headersSent) {
+      res.status(500).send('Failed to fetch image');
+    }
+  });
+
+  req.on('close', () => {
+    try { imageReq.destroy(); } catch {}
   });
 });
 
@@ -155,9 +175,45 @@ proxyRouter.get('/media-proxy', allowLocalOrAuth(), (req, res) => {
   const settings = getSettings();
   const ua = settings.userAgents.find((u) => u.id === settings.activeUserAgentId)?.value || 'VLC/3.0.20 (Linux; x86_64)';
 
+  let currentProxyReq: http.ClientRequest | null = null;
+  let currentUpstreamRes: http.IncomingMessage | null = null;
+  let isClosed = false;
+
+  const cleanup = () => {
+    if (isClosed) return;
+    isClosed = true;
+
+    if (currentUpstreamRes) {
+      try {
+        currentUpstreamRes.unpipe(res);
+        currentUpstreamRes.destroy();
+        currentUpstreamRes.socket?.destroy();
+      } catch {}
+      currentUpstreamRes = null;
+    }
+
+    if (currentProxyReq) {
+      try {
+        currentProxyReq.destroy();
+      } catch {}
+      currentProxyReq = null;
+    }
+  };
+
+  req.on('close', cleanup);
+  res.on('close', cleanup);
+  res.on('finish', cleanup);
+  res.on('error', cleanup);
+
   function executeProxy(urlStr: string, redirectCount = 0) {
+    if (isClosed) return;
+
     if (redirectCount > 5) {
-      return res.status(502).send('Too many redirects from media server');
+      if (!res.headersSent) {
+        res.status(502).send('Too many redirects from media server');
+      }
+      cleanup();
+      return;
     }
 
     let parsed: URL;
@@ -167,7 +223,11 @@ proxyRouter.get('/media-proxy', allowLocalOrAuth(), (req, res) => {
       }
       parsed = new URL(urlStr);
     } catch {
-      return res.status(400).send('Invalid URL');
+      if (!res.headersSent) {
+        res.status(400).send('Invalid URL');
+      }
+      cleanup();
+      return;
     }
 
     const headers: Record<string, string> = {
@@ -175,6 +235,12 @@ proxyRouter.get('/media-proxy', allowLocalOrAuth(), (req, res) => {
     };
     if (req.headers.range) {
       headers['Range'] = req.headers.range;
+    }
+
+    // Clean up previous request before initiating redirect
+    if (currentProxyReq) {
+      try { currentProxyReq.destroy(); } catch {}
+      currentProxyReq = null;
     }
 
     const client = parsed.protocol === 'https:' ? https : http;
@@ -185,6 +251,14 @@ proxyRouter.get('/media-proxy', allowLocalOrAuth(), (req, res) => {
         headers,
       },
       (upstreamRes) => {
+        if (isClosed) {
+          try {
+            upstreamRes.destroy();
+            upstreamRes.socket?.destroy();
+          } catch {}
+          return;
+        }
+
         // Handle HTTP 301, 302, 307, 308 redirects automatically (very common in XC IPTV servers)
         if (
           upstreamRes.statusCode &&
@@ -192,9 +266,14 @@ proxyRouter.get('/media-proxy', allowLocalOrAuth(), (req, res) => {
           upstreamRes.headers.location
         ) {
           const redirectLocation = new URL(upstreamRes.headers.location, urlStr).toString();
-          upstreamRes.resume(); // discard response data
+          try {
+            upstreamRes.destroy();
+            upstreamRes.socket?.destroy();
+          } catch {}
           return executeProxy(redirectLocation, redirectCount + 1);
         }
+
+        currentUpstreamRes = upstreamRes;
 
         res.status(upstreamRes.statusCode || 200);
 
@@ -218,21 +297,30 @@ proxyRouter.get('/media-proxy', allowLocalOrAuth(), (req, res) => {
         res.setHeader('Accept-Ranges', 'bytes');
 
         upstreamRes.pipe(res);
+
         upstreamRes.on('error', (err) => {
-          console.error('[MEDIA_PROXY] Upstream pipe error:', err.message);
+          if (!isClosed) {
+            console.error('[MEDIA_PROXY] Upstream pipe error:', err.message);
+          }
+          cleanup();
+        });
+
+        upstreamRes.on('end', () => {
+          cleanup();
         });
       }
     );
 
-    proxyReq.on('error', (err) => {
-      console.error(`[MEDIA_PROXY] Request error for ${urlStr}:`, err.message);
-      if (!res.headersSent) {
-        res.status(502).send('Error connecting to upstream IPTV media server');
-      }
-    });
+    currentProxyReq = proxyReq;
 
-    req.on('close', () => {
-      proxyReq.destroy();
+    proxyReq.on('error', (err) => {
+      if (!isClosed) {
+        console.error(`[MEDIA_PROXY] Request error for ${urlStr}:`, err.message);
+        if (!res.headersSent) {
+          res.status(502).send('Error connecting to upstream IPTV media server');
+        }
+      }
+      cleanup();
     });
 
     proxyReq.end();

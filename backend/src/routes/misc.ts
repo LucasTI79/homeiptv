@@ -1,9 +1,9 @@
 import fs from 'fs';
 import path from 'path';
+import http from 'http';
 import https from 'https';
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { fetchUrlContent } from '../services/sources';
 import { detectedHardware } from '../services/hardwareDetection';
 
 // Ports the small standalone routes from server.js:3858-3871, 4876-4909.
@@ -24,6 +24,35 @@ miscRouter.get('/version', requireAuth, (_req, res) => {
   }
 });
 
+function probeUrlReachable(targetUrl: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let parsed: URL;
+    try {
+      parsed = new URL(targetUrl);
+    } catch {
+      return reject(new Error('Invalid URL format'));
+    }
+    const protocol = parsed.protocol === 'https:' ? https : http;
+    const req = protocol.request(parsed, { method: 'GET', timeout: 10000 }, (res) => {
+      const status = res.statusCode || 0;
+      try { req.destroy(); res.destroy(); } catch {}
+      if (status >= 200 && status < 400) {
+        resolve();
+      } else {
+        reject(new Error(`Server responded with status code ${status}`));
+      }
+    });
+    req.on('timeout', () => {
+      try { req.destroy(); } catch {}
+      reject(new Error('Connection timed out'));
+    });
+    req.on('error', (err) => {
+      reject(err);
+    });
+    req.end();
+  });
+}
+
 miscRouter.post('/validate-url', requireAuth, async (req, res) => {
   const { url } = req.body as { url?: string };
   if (!url) {
@@ -31,7 +60,7 @@ miscRouter.post('/validate-url', requireAuth, async (req, res) => {
   }
   console.log(`[VALIDATE_URL] Testing URL: ${url}`);
   try {
-    await fetchUrlContent(url);
+    await probeUrlReachable(url);
     res.json({ success: true, message: 'URL is reachable and returned a successful response.' });
   } catch (error) {
     res.status(400).json({ success: false, error: `URL is not reachable. Error: ${(error as Error).message}` });

@@ -52,10 +52,15 @@ streamRouter.route('/stream')
     console.log(`[STREAM] Existing stream requested. Key: ${streamKey}. New ref count: ${activeStreamInfo.references}.`);
     activeStreamInfo.process.stdout.pipe(res);
 
-    req.on('close', () => {
+    const detachClient = () => {
       activeStreamInfo.references--;
       activeStreamInfo.lastAccess = Date.now();
-    });
+      try {
+        activeStreamInfo.process.stdout.unpipe(res);
+      } catch {}
+    };
+    req.on('close', detachClient);
+    res.on('close', detachClient);
     return;
   }
 
@@ -153,13 +158,18 @@ streamRouter.route('/stream')
     if (!res.headersSent) res.status(500).send('Failed to start streaming service. Check server logs.');
   });
 
-  req.on('close', () => {
+  const onClientClose = () => {
     const info = activeStreamProcesses.get(streamKey);
     if (info) {
       info.references--;
       info.lastAccess = Date.now();
     }
-  });
+    try {
+      ffmpeg.stdout.unpipe(res);
+    } catch {}
+  };
+  req.on('close', onClientClose);
+  res.on('close', onClientClose);
   })
 
 // HEAD probe support for Shaka Player.

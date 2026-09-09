@@ -80,7 +80,7 @@ function Gate() {
           <Route path="/player" element={<PlayerPage />} />
           <Route path="/vod" element={<VodPage />} />
           <Route path="/downloads" element={<DownloadsPage />} />
-          <Route path="/dvr" element={<ComingSoonPage title="DVR" />} />
+          <Route path="/dvr" element={<DvrPage />} />
           <Route path="/notifications" element={<NotificationPage />} />
           <Route path="/multiview" element={<MultiviewPage />} />
           <Route path="/admin" element={<AdminPage />} />
@@ -95,6 +95,7 @@ function Gate() {
 
 import { TooltipProvider } from './components/ui/Tooltip';
 import { Toaster } from 'react-hot-toast';
+import { DvrPage } from './pages/dvr/DvrPage';
 
 export default function App() {
   return (

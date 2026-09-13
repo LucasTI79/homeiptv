@@ -38,6 +38,14 @@ function loadSavedConcurrency(): number {
   return 2;
 }
 
+function isAbortError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  if ('name' in err && typeof (err as { name: unknown }).name === 'string') {
+    return (err as { name: string }).name === 'AbortError';
+  }
+  return false;
+}
+
 export class DownloadManager {
   private static instance: DownloadManager | null = null;
 
@@ -50,6 +58,15 @@ export class DownloadManager {
   private constructor() {
     // Attempt to request persistent storage
     requestStoragePersistence().catch(() => {});
+    
+    // Auto-resume on internet reconnection
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => {
+        console.log('[DownloadManager] Network restored. Resuming pending downloads...');
+        this.processQueue().catch(() => {});
+      });
+    }
+
     // Recover any tasks that were downloading when previous session closed
     this.recoverInterruptedTasks().catch((err) => {
       console.warn('[DownloadManager] Failed to recover interrupted tasks:', err);
@@ -322,107 +339,193 @@ export class DownloadManager {
 
     const proxyUrl = `/api/media-proxy?url=${encodeURIComponent(task.remoteUrl)}`;
 
+    const MAX_RETRIES = 5;
+    const OSCILLATION_DEBOUNCE_MS = 3000;
+    let retryAttempt = 0;
+    let firstErrorTimestamp: number | null = null;
+
     try {
-      const headers: Record<string, string> = {};
-      if (task.downloadedBytes > 0) {
-        headers['Range'] = `bytes=${task.downloadedBytes}-`;
-      }
-
-      const response = await fetch(proxyUrl, {
-        headers,
-        signal: controller.signal,
-      });
-
-      if (!response.ok && response.status !== 206) {
-        throw new Error(`Servidor de mídia retornou HTTP ${response.status}`);
-      }
-
-      // Compute total bytes
-      const contentLengthHeader = response.headers.get('content-length');
-      const contentRangeHeader = response.headers.get('content-range');
-
-      if (contentRangeHeader) {
-        // e.g. "bytes 1000-5000/10000"
-        const match = contentRangeHeader.match(/\/(\d+)/);
-        if (match) {
-          task.totalBytes = parseInt(match[1], 10);
-        }
-      } else if (contentLengthHeader) {
-        const length = parseInt(contentLengthHeader, 10);
-        if (!isNaN(length)) {
-          task.totalBytes = task.downloadedBytes + length;
-        }
-      }
-
-      const fileHandle = await getDownloadedFileHandle(task.fileName, true);
-      if (!fileHandle) {
-        throw new Error('Falha ao criar arquivo de mídia no OPFS');
-      }
-
-      const writable = await fileHandle.createWritable({ keepExistingData: true });
-      if (task.downloadedBytes > 0) {
-        await writable.seek(task.downloadedBytes);
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) {
-        await writable.close();
-        throw new Error('Stream de download não disponível na resposta');
-      }
-
-      let lastSavedTime = Date.now();
-      let lastBytes = task.downloadedBytes;
-
-      while (true) {
+      while (retryAttempt <= MAX_RETRIES) {
         if (controller.signal.aborted) return;
-        const { done, value } = await reader.read();
-        if (done || controller.signal.aborted) break;
 
-        if (value && value.byteLength > 0) {
-          await writable.write(value);
-          task.downloadedBytes += value.byteLength;
-
-          const now = Date.now();
-          const elapsedSec = (now - lastSavedTime) / 1000;
-          if (elapsedSec >= 0.5) {
-            const bytesDelta = task.downloadedBytes - lastBytes;
-            task.speedBytesPerSec = Math.round(bytesDelta / elapsedSec);
-            lastSavedTime = now;
-            lastBytes = task.downloadedBytes;
-
-            if (controller.signal.aborted) return;
-            await saveDownloadTask(task);
-            this.notify(task);
+        try {
+          const headers: Record<string, string> = {};
+          if (task.downloadedBytes > 0) {
+            headers['Range'] = `bytes=${task.downloadedBytes}-`;
           }
+
+          const response = await fetch(proxyUrl, {
+            headers,
+            signal: controller.signal,
+          });
+
+          if (!response.ok) {
+            throw new Error(`Media server returned HTTP ${response.status}`);
+          }
+
+          const isPartial = response.status === 206;
+          if (!isPartial && task.downloadedBytes > 0) {
+            // Upstream ignored Range request; restarting from 0 to prevent corruption
+            console.warn(`[DownloadManager] Server returned HTTP 200 instead of 206 for Range request. Restarting file from byte 0.`);
+            task.downloadedBytes = 0;
+          }
+
+          // Compute total bytes
+          const contentLengthHeader = response.headers.get('content-length');
+          const contentRangeHeader = response.headers.get('content-range');
+
+          if (contentRangeHeader) {
+            // e.g. "bytes 1000-5000/10000"
+            const match = contentRangeHeader.match(/\/(\d+)/);
+            if (match) {
+              task.totalBytes = parseInt(match[1], 10);
+            }
+          } else if (contentLengthHeader) {
+            const length = parseInt(contentLengthHeader, 10);
+            if (!isNaN(length)) {
+              task.totalBytes = isPartial ? task.downloadedBytes + length : length;
+            }
+          }
+
+          const fileHandle = await getDownloadedFileHandle(task.fileName, true);
+          if (!fileHandle) {
+            throw new Error('Falha ao criar arquivo de mídia no OPFS');
+          }
+
+          const writable = await fileHandle.createWritable({ keepExistingData: task.downloadedBytes > 0 });
+          if (task.downloadedBytes > 0) {
+            await writable.seek(task.downloadedBytes);
+          } else {
+            await writable.seek(0);
+          }
+
+          const reader = response.body?.getReader();
+          if (!reader) {
+            await writable.close();
+            throw new Error('Stream de download não disponível na resposta');
+          }
+
+          let lastSavedTime = Date.now();
+          let lastDbSaveTime = Date.now();
+          let lastBytes = task.downloadedBytes;
+
+          try {
+            while (true) {
+              if (controller.signal.aborted) break;
+              const { done, value } = await reader.read();
+              if (done || controller.signal.aborted) break;
+
+              if (value && value.byteLength > 0) {
+                // Connection is healthy - clear error state and reset retry trackers
+                if (retryAttempt > 0 || task.status === 'retrying' || task.errorMessage) {
+                  retryAttempt = 0;
+                  firstErrorTimestamp = null;
+                  task.status = 'downloading';
+                  task.errorMessage = undefined;
+                  this.notify(task);
+                }
+
+                await writable.write(value);
+                task.downloadedBytes += value.byteLength;
+
+                const now = Date.now();
+                const elapsedSec = (now - lastSavedTime) / 1000;
+                if (elapsedSec >= 1.0) {
+                  const bytesDelta = task.downloadedBytes - lastBytes;
+                  const instantSpeed = Math.round(bytesDelta / elapsedSec);
+                  // Smooth speed using exponential moving average (EMA)
+                  task.speedBytesPerSec = task.speedBytesPerSec
+                    ? Math.round(task.speedBytesPerSec * 0.7 + instantSpeed * 0.3)
+                    : instantSpeed;
+                  lastSavedTime = now;
+                  lastBytes = task.downloadedBytes;
+
+                  if (controller.signal.aborted) break;
+
+                  // Save to IndexedDB every 2 seconds to avoid disk I/O thrashing
+                  if (now - lastDbSaveTime >= 2000) {
+                    lastDbSaveTime = now;
+                    await saveDownloadTask(task);
+                  }
+                  this.notify(task);
+                }
+              }
+            }
+          } finally {
+            await writable.close();
+          }
+
+          if (controller.signal.aborted) {
+            return;
+          }
+
+          if (task.totalBytes > 0 && task.downloadedBytes < task.totalBytes) {
+            throw new Error(`Download incompleto: transferidos ${task.downloadedBytes} de ${task.totalBytes} bytes`);
+          }
+          if (task.downloadedBytes === 0) {
+            throw new Error('Nenhum dado recebido durante o download');
+          }
+
+          task.status = 'completed';
+          task.speedBytesPerSec = 0;
+          task.errorMessage = undefined;
+          task.completedAt = Date.now();
+          if (task.totalBytes === 0) {
+            task.totalBytes = task.downloadedBytes;
+          }
+          await saveDownloadTask(task);
+          this.notify(task);
+          return;
+        } catch (err: unknown) {
+          if (controller.signal.aborted || isAbortError(err)) {
+            // Paused or cancelled intentionally
+            return;
+          }
+
+          if (retryAttempt < MAX_RETRIES) {
+            retryAttempt++;
+            if (firstErrorTimestamp === null) {
+              firstErrorTimestamp = Date.now();
+            }
+
+            const errorDuration = Date.now() - firstErrorTimestamp;
+            // Debounce: Only mark task as 'retrying' and show oscillation message if
+            // the failure persists across retries or after the debounce window has elapsed.
+            const isDebounced = retryAttempt >= 2 || errorDuration >= OSCILLATION_DEBOUNCE_MS;
+            const backoffSec = isDebounced ? Math.min(30, Math.pow(2, retryAttempt)) : 1;
+
+            if (isDebounced) {
+              console.warn(
+                `[DownloadManager] Network oscillation detected for ${task.id}:`,
+                err,
+                `Retrying in ${backoffSec}s (attempt ${retryAttempt}/${MAX_RETRIES})`
+              );
+              task.status = 'retrying';
+              task.speedBytesPerSec = 0;
+              task.errorMessage = `Oscilação de rede detectada. Reconectando em ${backoffSec}s (tentativa ${retryAttempt}/${MAX_RETRIES})...`;
+              await saveDownloadTask(task);
+              this.notify(task);
+            } else {
+              task.speedBytesPerSec = 0;
+              console.info(
+                `[DownloadManager] Brief transient drop for ${task.id}, attempting quick reconnect in 1s...`,
+                err
+              );
+            }
+
+            await new Promise((resolve) => setTimeout(resolve, backoffSec * 1000));
+            continue;
+          }
+
+          console.error(`[DownloadManager] Download failed for ${task.id} after ${MAX_RETRIES} retries:`, err);
+          task.status = 'error';
+          task.errorMessage = err instanceof Error ? err.message : 'Erro durante o download';
+          task.speedBytesPerSec = 0;
+          await saveDownloadTask(task);
+          this.notify(task);
+          return;
         }
       }
-
-      await writable.close();
-
-      if (controller.signal.aborted) {
-        return;
-      }
-
-      task.status = 'completed';
-      task.speedBytesPerSec = 0;
-      task.completedAt = Date.now();
-      if (task.totalBytes === 0) {
-        task.totalBytes = task.downloadedBytes;
-      }
-      await saveDownloadTask(task);
-      this.notify(task);
-    } catch (err) {
-      if (controller.signal.aborted || (err as { name?: string }).name === 'AbortError') {
-        // Paused or cancelled intentionally
-        return;
-      }
-
-      console.error(`[DownloadManager] Download failed for ${task.id}:`, err);
-      task.status = 'error';
-      task.errorMessage = (err as Error).message || 'Erro durante o download';
-      task.speedBytesPerSec = 0;
-      await saveDownloadTask(task);
-      this.notify(task);
     } finally {
       this.activeTasks.delete(task.id);
       this.abortControllers.delete(task.id);

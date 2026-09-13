@@ -193,5 +193,61 @@ describe('PlayerPage', () => {
       })
     );
   });
+
+  it('does not advance to next episode on premature ended event when duration is not near completion', async () => {
+    const { useUiStore } = await import('../../store/uiStore');
+    const { usePlaybackStore } = await import('../../store/playbackStore');
+
+    const markEpisodeWatchedSpy = vi.fn();
+    const setSelectedChannelSpy = vi.fn();
+    usePlaybackStore.setState({
+      markEpisodeWatched: markEpisodeWatchedSpy,
+    });
+
+    vi.mocked(useUiStore).mockImplementation((selector: any) => {
+      const store = {
+        selectedChannel: {
+          id: 'series_1_s1_e0',
+          name: 'My Series - Ep 1',
+          url: 'http://example.com/ep1.mp4',
+          isVod: true,
+          duration: 2700,
+          seriesContext: {
+            seriesId: 'series_1',
+            seriesName: 'My Series',
+            season: '1',
+            episodeIndex: 0,
+            episodes: [
+              { name: 'Ep 1', url: 'http://example.com/ep1.mp4', duration: 2700 },
+              { name: 'Ep 2', url: 'http://example.com/ep2.mp4', duration: 2700 },
+            ],
+          },
+          nextEpisode: {
+            url: 'http://example.com/ep2.mp4',
+            name: 'My Series - Ep 2',
+            season: '1',
+            episodeIndex: 1,
+            duration: 2700,
+          },
+        },
+        setSelectedChannel: setSelectedChannelSpy,
+      };
+      return selector(store);
+    });
+
+    const { fireEvent } = await import('@testing-library/react');
+    renderWithProviders(<PlayerPage />);
+
+    const video = document.querySelector('video');
+    expect(video).toBeInTheDocument();
+
+    if (video) {
+      Object.defineProperty(video, 'currentTime', { value: 120, writable: true });
+      fireEvent.ended(video);
+    }
+
+    expect(markEpisodeWatchedSpy).not.toHaveBeenCalled();
+    expect(setSelectedChannelSpy).not.toHaveBeenCalled();
+  });
 });
 

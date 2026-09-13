@@ -158,6 +158,7 @@ export function VodPage() {
           id: item.id,
           isVod: true,
           vodType: 'movie',
+          duration: item.duration ?? undefined,
           logo: item.logo,
           originalUrl: item.url,
           isLocal: Boolean(item.isLocal || item.url?.startsWith('/api/local-media')),
@@ -203,6 +204,7 @@ export function VodPage() {
       id: `${series.id}_s${options.season}_e${options.episodeIndex}`,
       isVod: true,
       vodType: 'series',
+      duration: options.duration ?? undefined,
       logo: series.logo,
       originalUrl: options.url,
       seriesContext: {
@@ -285,6 +287,7 @@ export function VodPage() {
       id: cw.id,
       isVod: true,
       vodType: cw.type,
+      duration: cw.duration ?? undefined,
       logo: cw.logo,
       originalUrl: cw.url,
       initialTime: cw.currentTime,

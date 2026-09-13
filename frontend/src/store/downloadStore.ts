@@ -152,7 +152,7 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => {
 
     isDownloadingOrQueued: (id: string) => {
       const task = get().tasks[id];
-      return task ? task.status === 'downloading' || task.status === 'queued' : false;
+      return task ? task.status === 'downloading' || task.status === 'queued' || task.status === 'retrying' : false;
     },
 
     enqueueMovie: async (movie) => {

@@ -241,7 +241,12 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
     controller.addEventListener(
       castFramework.RemotePlayerEventType.DURATION_CHANGED,
       () => {
-        setCastDuration(player.duration || 0);
+        const rawDur = player.duration;
+        if (typeof rawDur === 'number' && !isNaN(rawDur) && isFinite(rawDur) && rawDur > 0) {
+          setCastDuration(rawDur);
+        } else if (currentCastState.current.duration && currentCastState.current.duration > 0) {
+          setCastDuration(currentCastState.current.duration);
+        }
       }
     );
 
@@ -273,6 +278,7 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
       case SessionState.SESSION_STARTED:
       case SessionState.SESSION_RESUMED:
         setIsCasting(true);
+        setIsConnected(true);
         if (session) {
           toast.success(`Casting to ${session.getCastDevice().friendlyName}`);
         }
@@ -287,6 +293,7 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const handleSessionEnd = () => {
+    castSessionRef.current = null;
     if (currentCastState.current.streamUrl) {
       stopCastStreamOnServer(currentCastState.current.streamUrl, settings?.activeCastProfileId || 'cast-default');
     }
@@ -343,10 +350,13 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
       seekSeconds = 0,
       knownDuration?: number
     ) => {
-      if (!castSessionRef.current) {
-        toast.error('Not connected to a Cast device.');
+      const castContext = (window as any).cast?.framework?.CastContext?.getInstance();
+      const session = castContext?.getCurrentSession() || castSessionRef.current;
+      if (!session) {
+        console.warn('Cannot load media: no active Cast session.');
         return;
       }
+      castSessionRef.current = session;
 
       const activeCastProfileId = settings?.activeCastProfileId || 'cast-default';
       const userAgentId = settings?.activeUserAgentId || 'default-ua-1724778434000';
@@ -360,20 +370,23 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let castUrl = url;
 
       if (!isLocalUrl) {
-        // Remote provider stream (IPTV M3U live or VOD).
-        // External IPTV servers block Chromecast user-agents and direct connections.
-        // We route them through our local /stream proxy which uses ffmpeg cast-default profile.
-        let streamPath = `/stream?url=${encodeURIComponent(url)}&profileId=${encodeURIComponent(activeCastProfileId)}&userAgentId=${encodeURIComponent(userAgentId)}`;
-        if (name) {
-          streamPath += `&vodName=${encodeURIComponent(name)}`;
+        if (isVod) {
+          // Remote VOD (movies & series):
+          // We route them through /api/media-proxy which forwards HTTP Range requests directly
+          // with the configured User-Agent. This allows native Chromecast seeking, accurate
+          // duration discovery from container metadata, and eliminates ffmpeg transcoding stalls.
+          castUrl = `/api/media-proxy?url=${encodeURIComponent(url)}`;
+        } else {
+          // Remote provider live stream:
+          let streamPath = `/stream?url=${encodeURIComponent(url)}&profileId=${encodeURIComponent(activeCastProfileId)}&userAgentId=${encodeURIComponent(userAgentId)}`;
+          if (name) {
+            streamPath += `&vodName=${encodeURIComponent(name)}`;
+          }
+          if (logo) {
+            streamPath += `&vodLogo=${encodeURIComponent(logo)}`;
+          }
+          castUrl = streamPath;
         }
-        if (logo) {
-          streamPath += `&vodLogo=${encodeURIComponent(logo)}`;
-        }
-        if (isVod && seekSeconds > 0) {
-          streamPath += `&startTime=${seekSeconds}`;
-        }
-        castUrl = streamPath;
       } else {
         // Local endpoint (/api/local-media, /api/downloads, or local /stream)
         if (castUrl.startsWith('/stream')) {
@@ -403,26 +416,49 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!durationSeconds && isVod && originalUrl) {
         durationSeconds = await probeVodDuration(originalUrl, settings?.activeUserAgentId);
       }
+      if (durationSeconds && durationSeconds > 0) {
+        setCastDuration(durationSeconds);
+        currentCastState.current.duration = durationSeconds;
+      }
 
-      const mediaInfo = new chrome.cast.media.MediaInfo(absoluteUrl, 'video/mp4');
+      let contentType = 'video/mp4';
+      const cleanUrl = url.split('?')[0].toLowerCase();
+      if (cleanUrl.endsWith('.m3u8')) {
+        contentType = 'application/x-mpegURL';
+      } else if (cleanUrl.endsWith('.mkv')) {
+        contentType = 'video/x-matroska';
+      } else if (cleanUrl.endsWith('.webm')) {
+        contentType = 'video/webm';
+      }
+
+      const mediaInfo = new chrome.cast.media.MediaInfo(absoluteUrl, contentType);
 
       mediaInfo.streamType = isVod ? chrome.cast.media.StreamType.BUFFERED : chrome.cast.media.StreamType.LIVE;
       if (isVod && typeof durationSeconds === 'number' && durationSeconds > 0) {
-        mediaInfo.duration = Math.max(1, durationSeconds - seekSeconds);
+        mediaInfo.duration = durationSeconds;
       }
 
-      mediaInfo.metadata = new chrome.cast.media.TvShowMediaMetadata();
-      mediaInfo.metadata.title = name;
+      const chromeCast = (window as any).chrome?.cast;
+      const metadata = new (chromeCast?.media?.GenericMediaMetadata || chrome.cast.media.GenericMediaMetadata)();
+      metadata.title = name || 'ViniPlay';
       if (logo) {
         const absoluteLogo = logo.startsWith('http') ? logo : toCastMediaUrl(logo, castPort);
-        mediaInfo.metadata.images = [new chrome.cast.Image(absoluteLogo)];
+        metadata.images = [new chrome.cast.Image(absoluteLogo)];
       }
+      mediaInfo.metadata = metadata;
 
       const request = new chrome.cast.media.LoadRequest(mediaInfo);
+      request.autoplay = true;
+      if (isVod && seekSeconds > 0) {
+        request.currentTime = seekSeconds;
+      }
 
       try {
-        await castSessionRef.current.loadMedia(request);
-        setCurrentMedia(castSessionRef.current.getMediaSession());
+        await session.loadMedia(request);
+        setCurrentMedia(session.getMediaSession());
+        if (durationSeconds && durationSeconds > 0) {
+          setCastDuration(durationSeconds);
+        }
         currentCastState.current = {
           streamUrl: url,
           isVod,
@@ -486,7 +522,9 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
     (deltaSeconds: number) => {
       if (!isCasting) return;
       const curr = castPlayerRef.current?.currentTime ?? castCurrentTime;
-      const dur = castPlayerRef.current?.duration ?? castDuration;
+      const dur = (castPlayerRef.current?.duration && castPlayerRef.current.duration > 0)
+        ? castPlayerRef.current.duration
+        : (castDuration > 0 ? castDuration : (currentCastState.current.duration ?? 0));
       const target = Math.max(0, dur > 0 ? Math.min(dur, curr + deltaSeconds) : curr + deltaSeconds);
       seekToTime(target);
     },

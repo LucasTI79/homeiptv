@@ -8,8 +8,8 @@ export interface VodProgressItem {
   seriesName?: string;
   season?: string;
   episodeIndex?: number;
-  episodes?: { name: string; url: string }[];
-  nextEpisode?: { url: string; name: string; season: string; episodeIndex: number };
+  episodes?: { name: string; url: string; duration?: string | number | null; duration_secs?: number | null }[];
+  nextEpisode?: { url: string; name: string; season: string; episodeIndex: number; duration?: number | null };
   title: string;
   type: 'movie' | 'series';
   url: string;

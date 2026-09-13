@@ -1,5 +1,6 @@
 import { db } from '../db/connection';
 import { XtreamClient } from './xtreamClient';
+import { parseDurationToSecs } from './vodUtils';
 import type { M3uSource } from '@homeiptv/shared-types';
 
 export type SendStatus = (message: string, type?: string) => void;
@@ -97,12 +98,35 @@ export async function refreshVodContent(
             if (yearMatch) year = parseInt(yearMatch[1], 10);
           }
           const categoryName = categoryMap.get(String(categoryId)) || 'VOD';
+          const durationSecs = parseDurationToSecs(
+            (movieData as { duration_secs?: unknown }).duration_secs ?? (movieData as { stream_duration?: unknown }).stream_duration,
+            (movieData as { duration?: unknown }).duration
+          );
 
           let movieId = providerUniqueIdMap.get(providerUniqueId);
           if (movieId) {
-            await trx('movies').where({ id: movieId }).update({ name, year, description: plot, logo: streamIcon, category_name: categoryName });
+            await trx('movies')
+              .where({ id: movieId })
+              .update({
+                name,
+                year,
+                description: plot,
+                logo: streamIcon,
+                category_name: categoryName,
+                ...(durationSecs ? { duration_secs: durationSecs } : {}),
+              });
           } else {
-            const [row] = await trx('movies').insert({ name, year, description: plot, logo: streamIcon, category_name: categoryName, provider_unique_id: providerUniqueId }).returning('id');
+            const [row] = await trx('movies')
+              .insert({
+                name,
+                year,
+                description: plot,
+                logo: streamIcon,
+                category_name: categoryName,
+                provider_unique_id: providerUniqueId,
+                duration_secs: durationSecs,
+              })
+              .returning('id');
             movieId = typeof row === 'number' ? row : (row as { id: number }).id;
             providerUniqueIdMap.set(providerUniqueId, movieId);
           }

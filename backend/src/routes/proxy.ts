@@ -11,6 +11,7 @@ import { getSettings } from '../services/settings';
 import { parseM3U } from '../services/sources';
 import { LIVE_CHANNELS_M3U_PATH } from '../config/paths';
 import { IMAGE_CACHE_DIR, cachePathsFor } from '../services/imageCache';
+import { activeCastTokens } from '../state/streamState';
 
 export const proxyRouter = Router();
 
@@ -166,7 +167,22 @@ proxyRouter.get('/playlist-proxy', requireAuth, (req, res) => {
 });
 
 // Stream proxy endpoint to forward VOD video streams with redirect follow & HTTP Range support
-proxyRouter.get('/media-proxy', allowLocalOrAuth(), (req, res) => {
+const mediaProxyAuth = allowLocalOrAuth(activeCastTokens);
+
+proxyRouter.options('/media-proxy', (_req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Range');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Content-Length, Accept-Ranges, Content-Type');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.status(204).end();
+});
+
+proxyRouter.all('/media-proxy', mediaProxyAuth, (req, res) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    return res.status(405).send('Method Not Allowed');
+  }
+
   const targetUrl = req.query.url as string | undefined;
   if (!targetUrl) {
     return res.status(400).send('Missing url parameter');
@@ -247,7 +263,7 @@ proxyRouter.get('/media-proxy', allowLocalOrAuth(), (req, res) => {
     const proxyReq = client.request(
       parsed,
       {
-        method: 'GET',
+        method: req.method === 'HEAD' ? 'HEAD' : 'GET',
         headers,
       },
       (upstreamRes) => {
@@ -292,9 +308,29 @@ proxyRouter.get('/media-proxy', allowLocalOrAuth(), (req, res) => {
         }
 
         if (!upstreamRes.headers['content-type'] || upstreamRes.headers['content-type'].includes('text/html')) {
-          res.setHeader('Content-Type', 'video/mp4');
+          const cleanUrl = urlStr.split('?')[0].toLowerCase();
+          if (cleanUrl.endsWith('.m3u8')) {
+            res.setHeader('Content-Type', 'application/x-mpegURL');
+          } else if (cleanUrl.endsWith('.mkv')) {
+            res.setHeader('Content-Type', 'video/x-matroska');
+          } else if (cleanUrl.endsWith('.webm')) {
+            res.setHeader('Content-Type', 'video/webm');
+          } else {
+            res.setHeader('Content-Type', 'video/mp4');
+          }
         }
         res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Range');
+        res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Content-Length, Accept-Ranges, Content-Type');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
+        if (req.method === 'HEAD') {
+          res.end();
+          cleanup();
+          return;
+        }
 
         upstreamRes.pipe(res);
 

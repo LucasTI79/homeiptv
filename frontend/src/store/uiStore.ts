@@ -8,7 +8,7 @@ export interface SelectedEpisodeContext {
   seriesName: string;
   season: string;
   episodeIndex: number;
-  episodes: Array<{ name: string; url: string }>;
+  episodes: Array<{ name: string; url: string; duration?: string | number | null; duration_secs?: number | null }>;
 }
 
 export interface NextEpisodeInfo {
@@ -16,6 +16,7 @@ export interface NextEpisodeInfo {
   name: string;
   season: string;
   episodeIndex: number;
+  duration?: number | null;
 }
 
 export interface SelectedChannel {
@@ -24,6 +25,7 @@ export interface SelectedChannel {
   id: string;
   isVod?: boolean;
   vodType?: 'movie' | 'series';
+  duration?: number | null;
   logo?: string;
   originalUrl?: string;
   initialTime?: number;

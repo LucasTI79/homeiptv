@@ -14,6 +14,7 @@ import {
   activeRedirectStreams,
   activeCastTokens,
   broadcastAdminUpdate,
+  updateActiveStream,
   type ActiveStreamInfo,
 } from '../state/streamState';
 
@@ -47,14 +48,20 @@ streamRouter.route('/stream')
 
   const activeStreamInfo = activeStreamProcesses.get(streamKey);
   if (activeStreamInfo) {
-    activeStreamInfo.references++;
-    activeStreamInfo.lastAccess = Date.now();
-    console.log(`[STREAM] Existing stream requested. Key: ${streamKey}. New ref count: ${activeStreamInfo.references}.`);
+    const updated = updateActiveStream(streamKey, (prev) => ({
+      ...prev,
+      references: prev.references + 1,
+      lastAccess: Date.now(),
+    }));
+    console.log(`[STREAM] Existing stream requested. Key: ${streamKey}. New ref count: ${updated?.references ?? 1}.`);
     activeStreamInfo.process.stdout.pipe(res);
 
     const detachClient = () => {
-      activeStreamInfo.references--;
-      activeStreamInfo.lastAccess = Date.now();
+      updateActiveStream(streamKey, (prev) => ({
+        ...prev,
+        references: Math.max(0, prev.references - 1),
+        lastAccess: Date.now(),
+      }));
       try {
         activeStreamInfo.process.stdout.unpipe(res);
       } catch {}
@@ -159,11 +166,11 @@ streamRouter.route('/stream')
   });
 
   const onClientClose = () => {
-    const info = activeStreamProcesses.get(streamKey);
-    if (info) {
-      info.references--;
-      info.lastAccess = Date.now();
-    }
+    updateActiveStream(streamKey, (prev) => ({
+      ...prev,
+      references: Math.max(0, prev.references - 1),
+      lastAccess: Date.now(),
+    }));
     try {
       ffmpeg.stdout.unpipe(res);
     } catch {}

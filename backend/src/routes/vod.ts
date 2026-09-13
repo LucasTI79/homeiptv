@@ -10,6 +10,7 @@ import { DOWNLOADS_DIR } from '../config/paths';
 import { XtreamClient } from '../services/xtreamClient';
 import { refreshVodContent, processM3uVod } from '../services/vodProcessor';
 import { getLocalMediaIndex } from '../services/localMediaScanner';
+import { parseDurationToSecs } from '../services/vodUtils';
 import { transcriptionQueue } from '../services/transcriptionQueue';
 import type { M3uSource } from '@homeiptv/shared-types';
 
@@ -35,6 +36,8 @@ function buildProviderMap(providers: M3uSource[]): Map<string, { baseUrl: string
   }
   return providerMap;
 }
+
+export { parseDurationToSecs } from '../services/vodUtils';
 
 vodRouter.post('/vod/refresh', requireAuth, async (_req, res) => {
   try {
@@ -116,7 +119,7 @@ vodRouter.get('/vod/library', requireAuth, async (req, res) => {
       const movies = await db('movies as m')
         .join('provider_movie_relations as r', 'm.id', 'r.movie_id')
         .whereIn('r.provider_id', activeProviderIds)
-        .select('m.provider_unique_id', 'm.name', 'm.year', 'm.description', 'm.logo', 'm.tmdb_id', 'm.imdb_id', 'm.category_name', 'r.stream_id', 'r.container_extension', 'r.provider_id')
+        .select('m.provider_unique_id', 'm.name', 'm.year', 'm.description', 'm.logo', 'm.tmdb_id', 'm.imdb_id', 'm.category_name', 'm.duration_secs', 'r.stream_id', 'r.container_extension', 'r.provider_id')
         .orderBy('m.name');
 
       processedMovies = movies
@@ -144,6 +147,7 @@ vodRouter.get('/vod/library', requireAuth, async (req, res) => {
             url: `${provider.baseUrl}/movie/${provider.username}/${provider.password}/${m.stream_id}.${ext}`,
             type: 'movie' as const,
             group: m.category_name,
+            duration: m.duration_secs ? Number(m.duration_secs) : null,
           };
         })
         .filter((m): m is NonNullable<typeof m> => m !== null);
@@ -327,7 +331,9 @@ vodRouter.get('/vod/series/:seriesId', requireAuth, async (req, res) => {
               for (const epDataRaw of epList) {
                 const epData = epDataRaw as {
                   season?: number; episode_num?: number; episode?: number; title?: string; name?: string;
-                  info?: { plot?: string; releasedate?: string; release_date?: string }; plot?: string; release_date?: string;
+                  info?: { plot?: string; releasedate?: string; release_date?: string; duration_secs?: unknown; duration?: unknown };
+                  duration_secs?: unknown; duration?: unknown;
+                  plot?: string; release_date?: string;
                   id?: string | number; stream_id?: string | number; container_extension?: string;
                 };
                 const season = parseInt(String(epData.season ?? seasonNum), 10) || 0;
@@ -337,15 +343,33 @@ vodRouter.get('/vod/series/:seriesId', requireAuth, async (req, res) => {
                 const releaseDate = epData.info?.releasedate ?? epData.info?.release_date ?? epData.release_date ?? null;
                 const streamId = String(epData.id || epData.stream_id || '');
                 const ext = epData.container_extension || 'mp4';
+                const durationSecs = parseDurationToSecs(
+                  epData.info?.duration_secs ?? epData.duration_secs,
+                  epData.info?.duration ?? epData.duration
+                );
 
                 let episodeId: number;
-                const existingEp = await trx('episodes').select('id').where({ series_id: numericSeriesId, season_num: season, episode_num: epNum }).first();
+                const existingEp = await trx('episodes')
+                  .select('id', 'duration_secs')
+                  .where({ series_id: numericSeriesId, season_num: season, episode_num: epNum })
+                  .first();
 
                 if (existingEp) {
                   episodeId = existingEp.id;
+                  if (durationSecs && !existingEp.duration_secs) {
+                    await trx('episodes').where({ id: episodeId }).update({ duration_secs: durationSecs });
+                  }
                 } else {
                   const [row] = await trx('episodes')
-                    .insert({ series_id: numericSeriesId, season_num: season, episode_num: epNum, name: title, description: plot, air_date: releaseDate })
+                    .insert({
+                      series_id: numericSeriesId,
+                      season_num: season,
+                      episode_num: epNum,
+                      name: title,
+                      description: plot,
+                      air_date: releaseDate,
+                      duration_secs: durationSecs,
+                    })
                     .returning('id');
                   episodeId = typeof row === 'number' ? row : (row as { id: number }).id;
                 }
@@ -392,6 +416,7 @@ vodRouter.get('/vod/series/:seriesId', requireAuth, async (req, res) => {
         season: ep.season_num,
         episode: ep.episode_num,
         url: epUrl,
+        duration_secs: ep.duration_secs ? Number(ep.duration_secs) : null,
       });
     });
 
@@ -467,7 +492,7 @@ vodRouter.get('/vod/duration', allowLocalOrAuth(), (req, res) => {
 
   const args = [
     '-v', 'error',
-    ...(isHttpUrl ? ['-analyzeduration', '3000000', '-probesize', '3000000', '-timeout', '4000000'] : []),
+    ...(isHttpUrl ? ['-analyzeduration', '5000000', '-probesize', '5000000', '-timeout', '15000000'] : []),
     ...(userAgent ? ['-user_agent', userAgent.value] : []),
     '-show_entries', 'format=duration',
     '-of', 'default=noprint_wrappers=1:nokey=1',
@@ -487,7 +512,7 @@ vodRouter.get('/vod/duration', allowLocalOrAuth(), (req, res) => {
       console.warn(`[VOD_DURATION] Probe timed out: ${sourceUrl}`);
       res.status(504).json({ error: 'Probe timed out' });
     }
-  }, 8000);
+  }, 15000);
 
   ffprobe.stdout.on('data', (data) => { output += data.toString(); });
   ffprobe.stderr.on('data', (data) => { errorOutput += data.toString(); });
@@ -569,7 +594,7 @@ vodRouter.get('/vod/transcribe/:id/status', requireAuth, (req, res) => {
     if (transcriptionQueue.getSubtitlePath(targetId)) {
        res.json({ job: { id: 'done', targetId, status: 'completed' } });
     } else {
-       res.status(404).json({ error: 'Not found' });
+       res.json({ job: null });
     }
   }
 });

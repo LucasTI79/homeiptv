@@ -11,6 +11,7 @@ export interface VodItem {
   description?: string;
   year?: string | number | null;
   isLocal?: boolean;
+  duration?: number | null;
 }
 
 export interface VodLibrary {
@@ -20,8 +21,15 @@ export interface VodLibrary {
 }
 
 export interface SeriesEpisode {
+  id?: string;
   name: string;
   url: string;
+  description?: string;
+  air_date?: string | null;
+  season?: number;
+  episode?: number;
+  duration_secs?: number | null;
+  duration?: string | number | null;
 }
 
 export interface SeriesDetails {
@@ -69,7 +77,7 @@ export async function probeVodDuration(sourceUrl: string, userAgentId?: string):
     if (userAgentId) params.set('userAgentId', userAgentId);
     
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const timeoutId = setTimeout(() => controller.abort(), 16000);
     
     // We use standard fetch here to easily pass the abort signal
     const response = await fetch(`/api/vod/duration?${params}`, { signal: controller.signal });

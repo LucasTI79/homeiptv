@@ -46,6 +46,29 @@ initializeVapid();
 // broadcastAdminUpdate() without depending on the SSE layer directly.
 setBroadcastAdminUpdate(broadcastAdminUpdateImpl);
 
+// Ensure duration_secs column exists in episodes and movies tables
+async function ensureDurationColumns(): Promise<void> {
+  try {
+    const hasEpisodeDuration = await db.schema.hasColumn('episodes', 'duration_secs');
+    if (!hasEpisodeDuration) {
+      await db.schema.alterTable('episodes', (table) => {
+        table.integer('duration_secs');
+      });
+      console.log('[DB] Added duration_secs column to episodes table.');
+    }
+    const hasMovieDuration = await db.schema.hasColumn('movies', 'duration_secs');
+    if (!hasMovieDuration) {
+      await db.schema.alterTable('movies', (table) => {
+        table.integer('duration_secs');
+      });
+      console.log('[DB] Added duration_secs column to movies table.');
+    }
+  } catch (error) {
+    console.error(`[DB] Error ensuring duration columns: ${(error as Error).message}`);
+  }
+}
+void ensureDurationColumns();
+
 const app = express();
 
 // Same reasoning as the Wave 0 fix in server.js: only trust X-Forwarded-For

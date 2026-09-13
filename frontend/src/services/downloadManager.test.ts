@@ -135,4 +135,43 @@ describe('DownloadManager', () => {
     manager.setMaxConcurrency(10);
     expect(manager.getMaxConcurrency()).toBe(5);
   });
+
+  it('silently recovers from a transient network drop on attempt 1 without persistent error', async () => {
+    let callCount = 0;
+    globalThis.fetch = vi.fn().mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.reject(new Error('Failed to fetch'));
+      }
+      return Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new Uint8Array([1, 2, 3, 4]));
+              controller.close();
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'content-length': '4' },
+          }
+        )
+      );
+    });
+
+    const manager = DownloadManager.getInstance();
+    const task = await manager.enqueueMovie({
+      id: 'movie_transient_test',
+      title: 'Interstellar',
+      url: 'http://stream.test/interstellar.mp4',
+    });
+
+    // Wait for the quick 1s retry and completion
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    const finalTask = await manager.getTask(task.id);
+    expect(finalTask?.status).toBe('completed');
+    expect(finalTask?.errorMessage).toBeUndefined();
+    expect(finalTask?.downloadedBytes).toBe(4);
+  });
 });

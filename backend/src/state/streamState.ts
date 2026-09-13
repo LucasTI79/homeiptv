@@ -45,6 +45,17 @@ export const activeStreamProcesses = new Map<string, ActiveStreamInfo>();
 export const activeRedirectStreams = new Map<string, ActiveRedirectStreamInfo>();
 export const activeCastTokens = new Map<string, CastTokenData>();
 
+export function updateActiveStream(
+  streamKey: string,
+  updater: (prev: ActiveStreamInfo) => ActiveStreamInfo
+): ActiveStreamInfo | null {
+  const current = activeStreamProcesses.get(streamKey);
+  if (!current) return null;
+  const updated = updater(current);
+  activeStreamProcesses.set(streamKey, updated);
+  return updated;
+}
+
 export const STREAM_INACTIVITY_TIMEOUT = 60000; // 60 seconds tolerance for network buffering & Cast
 
 // Wired up by the admin/SSE domain (task #16) once it lands; a no-op until

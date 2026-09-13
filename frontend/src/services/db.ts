@@ -34,7 +34,7 @@ export interface ContentSegment {
   updatedAt: number;
 }
 
-export type DownloadStatus = 'queued' | 'downloading' | 'paused' | 'completed' | 'error';
+export type DownloadStatus = 'queued' | 'downloading' | 'paused' | 'completed' | 'error' | 'retrying';
 
 export interface DownloadTask {
   id: string;

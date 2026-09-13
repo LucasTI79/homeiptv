@@ -600,6 +600,8 @@ export function DownloadsPage() {
                           className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
                             task.status === 'downloading'
                               ? 'bg-blue-600/30 text-blue-400 border border-blue-500/40 animate-pulse'
+                              : task.status === 'retrying'
+                              ? 'bg-amber-600/30 text-amber-400 border border-amber-500/40 animate-pulse'
                               : task.status === 'queued'
                               ? 'bg-amber-600/20 text-amber-400 border border-amber-500/30'
                               : task.status === 'paused'
@@ -609,6 +611,8 @@ export function DownloadsPage() {
                         >
                           {task.status === 'downloading'
                             ? 'Baixando'
+                            : task.status === 'retrying'
+                            ? 'Reconectando'
                             : task.status === 'queued'
                             ? 'Na Fila'
                             : task.status === 'paused'
@@ -630,8 +634,8 @@ export function DownloadsPage() {
                           </span>
                         ) : null}
                         {task.errorMessage && (
-                          <span className="text-rose-400 flex items-center gap-1">
-                            <FiAlertCircle className="w-3 h-3" />
+                          <span className={`flex items-center gap-1 ${task.status === 'retrying' ? 'text-amber-400' : 'text-rose-400'}`}>
+                            <FiAlertCircle className="w-3 h-3 shrink-0" />
                             <span>{task.errorMessage}</span>
                           </span>
                         )}
@@ -643,6 +647,8 @@ export function DownloadsPage() {
                           className={`h-1.5 rounded-full transition-all duration-300 ${
                             task.status === 'error'
                               ? 'bg-rose-500'
+                              : task.status === 'retrying'
+                              ? 'bg-amber-500'
                               : task.status === 'paused'
                               ? 'bg-gray-500'
                               : 'bg-blue-500'
@@ -655,7 +661,7 @@ export function DownloadsPage() {
 
                   {/* Actions */}
                   <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
-                    {task.status === 'downloading' && (
+                    {(task.status === 'downloading' || task.status === 'retrying') && (
                       <button
                         type="button"
                         onClick={() => pauseDownload(task.id)}

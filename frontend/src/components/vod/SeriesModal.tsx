@@ -16,6 +16,7 @@ import {
   FiCheck,
   FiRotateCcw,
   FiTrash2,
+  FiAlertTriangle,
 } from 'react-icons/fi';
 import { FaHeart } from 'react-icons/fa';
 
@@ -33,7 +34,8 @@ export interface PlayEpisodeOptions {
   season: string;
   episodeIndex: number;
   episodes: SeriesEpisode[];
-  nextEpisode?: { url: string; name: string; season: string; episodeIndex: number };
+  nextEpisode?: { url: string; name: string; season: string; episodeIndex: number; duration?: number | null };
+  duration?: number | null;
 }
 
 interface SeriesModalProps {
@@ -120,7 +122,7 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
 
   const seasonEpKeys = currentEpisodes.map((_, idx) => `${seriesId}_s${activeSeason}_e${idx}`);
   const downloadedCount = seasonEpKeys.filter((k) => tasks[k]?.status === 'completed' || clientCompletedDownloads.includes(k)).length;
-  const downloadingCount = seasonEpKeys.filter((k) => tasks[k]?.status === 'downloading').length;
+  const downloadingCount = seasonEpKeys.filter((k) => tasks[k]?.status === 'downloading' || tasks[k]?.status === 'retrying').length;
   const queuedCount = seasonEpKeys.filter((k) => tasks[k]?.status === 'queued').length;
   const allSeasonDownloaded = currentEpisodes.length > 0 && downloadedCount === currentEpisodes.length;
 
@@ -207,7 +209,8 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
   const handleDownloadSeason = async () => {
     const toDownload = currentEpisodes.filter((_, idx) => {
       const k = `${seriesId}_s${activeSeason}_e${idx}`;
-      return tasks[k]?.status !== 'completed' && tasks[k]?.status !== 'downloading' && tasks[k]?.status !== 'queued';
+      const status = tasks[k]?.status;
+      return status !== 'completed' && status !== 'downloading' && status !== 'queued' && status !== 'retrying';
     });
 
     if (toDownload.length === 0) {
@@ -237,8 +240,8 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
       }
       return;
     }
-    if (epTask?.status === 'downloading' || epTask?.status === 'queued') {
-      toast('Este episódio já está na fila de downloads!');
+    if (epTask?.status === 'downloading' || epTask?.status === 'queued' || epTask?.status === 'retrying') {
+      toast('Este episódio já está sendo baixado ou na fila!');
       return;
     }
 
@@ -282,13 +285,19 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
       }
     }
 
+    const epDuration = ep.duration_secs ?? (typeof ep.duration === 'number' ? ep.duration : null);
+    const nextEpDuration = nextEpisode
+      ? (idx + 1 < currentEpisodes.length ? (currentEpisodes[idx + 1].duration_secs ?? null) : null)
+      : null;
+
     onPlayEpisode({
       url: ep.url,
       title: `${seriesName} - ${ep.name || `Episode ${idx + 1}`}`,
       season: activeSeason,
       episodeIndex: idx,
       episodes: currentEpisodes,
-      nextEpisode,
+      nextEpisode: nextEpisode ? { ...nextEpisode, duration: nextEpDuration } : undefined,
+      duration: epDuration,
     });
   };
 
@@ -494,7 +503,10 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
                   const epTask = tasks[epKey];
                   const isEpDownloaded = epTask?.status === 'completed' || clientCompletedDownloads.includes(epKey);
                   const isEpDownloading = epTask?.status === 'downloading';
+                  const isEpRetrying = epTask?.status === 'retrying';
+                  const isEpActive = isEpDownloading || isEpRetrying;
                   const isEpQueued = epTask?.status === 'queued';
+                  const isEpError = epTask?.status === 'error';
                   const downloadPct = epTask && epTask.totalBytes > 0
                     ? Math.min(100, Math.round((epTask.downloadedBytes / epTask.totalBytes) * 100))
                     : 0;
@@ -502,8 +514,10 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
                   return (
                     <div
                       key={ep.url || idx}
-                      className={`border rounded-xl p-3 flex justify-between items-center transition group relative overflow-hidden ${
-                        isEpDownloading
+                      className={`border rounded-xl p-3 flex justify-between items-center transition-colors group relative overflow-hidden min-h-[72px] ${
+                        isEpRetrying
+                          ? 'bg-amber-950/20 border-amber-500/40 shadow-md shadow-amber-500/10'
+                          : isEpDownloading
                           ? 'bg-blue-950/30 border-blue-500/50 shadow-md shadow-blue-500/10'
                           : isEpDownloaded
                           ? 'bg-gray-900/60 border-emerald-500/30'
@@ -513,7 +527,7 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
                       }`}
                     >
                       {/* Watch progress bar */}
-                      {progressPct > 0 && !isEpDownloading && (
+                      {progressPct > 0 && !isEpActive && (
                         <div
                           className="absolute bottom-0 left-0 h-1 bg-blue-500 transition-all"
                           style={{ width: `${progressPct}%` }}
@@ -522,59 +536,85 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
                       )}
 
                       {/* Active download progress bar */}
-                      {isEpDownloading && (
+                      {isEpActive && (
                         <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-800 overflow-hidden">
                           <div
-                            className="bg-gradient-to-r from-blue-500 to-emerald-400 h-full transition-all duration-300"
+                            className={`h-full transition-all duration-300 ${
+                              isEpRetrying
+                                ? 'bg-gradient-to-r from-amber-500 to-amber-400'
+                                : 'bg-gradient-to-r from-blue-500 to-emerald-400'
+                            }`}
                             style={{ width: `${Math.max(2, downloadPct)}%` }}
                           />
                         </div>
                       )}
 
-                      <div className="min-w-0 pr-3 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[10px] font-semibold text-gray-400 bg-gray-800 px-1.5 py-0.5 rounded">
+                      <div className="min-w-0 pr-3 flex-1 flex flex-col justify-center">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-semibold text-gray-400 bg-gray-800 px-1.5 py-0.5 rounded shrink-0">
                             E{idx + 1}
                           </span>
-                          <p className="text-sm font-semibold text-white truncate">{ep.name || `Episode ${idx + 1}`}</p>
+                          <p className="text-sm font-semibold text-white truncate" title={ep.name || `Episode ${idx + 1}`}>
+                            {ep.name || `Episode ${idx + 1}`}
+                          </p>
                         </div>
 
                         {/* Download & watch status badges */}
-                        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                        <div className="flex items-center gap-2 mt-1.5 flex-wrap min-h-[22px]">
                           {isEpWatched && (
-                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1 shrink-0">
                               <FiCheck className="w-3 h-3 text-emerald-400" />
                               <span>Assistido</span>
                             </span>
                           )}
 
-                          {isEpDownloading && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-600/30 text-blue-300 border border-blue-500/50 flex items-center gap-1.5 animate-pulse">
-                              <FiLoader className="w-3 h-3 animate-spin text-blue-400" />
-                              <span>Baixando: {downloadPct}%</span>
-                              {epTask.speedBytesPerSec ? (
-                                <span className="text-blue-400 font-semibold">• {formatBytes(epTask.speedBytesPerSec)}/s</span>
-                              ) : null}
-                              <span>• {formatBytes(epTask.downloadedBytes)}</span>
+                          {isEpActive && (
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1.5 shrink-0 ${
+                                isEpRetrying
+                                  ? 'bg-amber-600/25 text-amber-300 border-amber-500/50'
+                                  : 'bg-blue-600/30 text-blue-300 border-blue-500/50 animate-pulse'
+                              }`}
+                            >
+                              <FiLoader className={`w-3 h-3 animate-spin ${isEpRetrying ? 'text-amber-400' : 'text-blue-400'}`} />
+                              <span>
+                                {isEpRetrying ? 'Reconectando' : 'Baixando'}: {downloadPct}%
+                              </span>
+                              {!isEpRetrying && (
+                                <span className="text-blue-400 font-semibold">
+                                  • {formatBytes(epTask?.speedBytesPerSec || 0)}/s
+                                </span>
+                              )}
+                              <span>• {formatBytes(epTask?.downloadedBytes || 0)}</span>
                             </span>
                           )}
 
                           {isEpQueued && (
-                            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-600/20 text-amber-400 border border-amber-500/30 flex items-center gap-1">
+                            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-600/20 text-amber-400 border border-amber-500/30 flex items-center gap-1 shrink-0">
                               <FiClock className="w-3 h-3" />
                               <span>Na fila de download</span>
                             </span>
                           )}
 
+                          {isEpError && (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-600/20 text-rose-300 border border-rose-500/30 flex items-center gap-1 shrink-0">
+                              <FiAlertTriangle className="w-3 h-3 text-rose-400" />
+                              <span>Erro no download</span>
+                            </span>
+                          )}
+
                           {isEpDownloaded && (
-                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1 shrink-0">
                               <FiCheckCircle className="w-3 h-3 text-emerald-400" />
-                              <span>{isRemoteClient ? '💾 Baixado no PC' : 'Baixado offline'} {epTask?.downloadedBytes ? `• ${formatBytes(epTask.downloadedBytes)}` : ''}</span>
+                              <span>
+                                {isRemoteClient ? '💾 Baixado no PC' : 'Baixado offline'}{' '}
+                                {epTask?.downloadedBytes ? `• ${formatBytes(epTask.downloadedBytes)}` : ''}
+                              </span>
                             </span>
                           )}
 
                           {progressPct > 0 && (
-                            <span className="text-[11px] text-blue-400 font-medium">
+                            <span className="text-[11px] text-blue-400 font-medium shrink-0">
                               {progressPct}% assistido
                             </span>
                           )}
@@ -609,28 +649,44 @@ export const SeriesModal: React.FC<SeriesModalProps> = ({
                           className={`p-2 rounded-lg border transition text-xs font-medium flex items-center justify-center ${
                             isEpDownloaded
                               ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/40 hover:bg-emerald-600/30'
+                              : isEpRetrying
+                              ? 'bg-amber-600/25 text-amber-300 border-amber-500/50'
                               : isEpDownloading
                               ? 'bg-blue-600/30 text-blue-300 border-blue-500/50'
                               : isEpQueued
                               ? 'bg-amber-600/20 text-amber-400 border-amber-500/30'
+                              : isEpError
+                              ? 'bg-rose-600/20 text-rose-400 border-rose-500/40 hover:bg-rose-600/30'
                               : 'bg-gray-800/80 text-gray-400 border-gray-700 hover:text-white hover:bg-gray-700'
                           }`}
                           title={
                             isEpDownloaded
-                              ? isRemoteClient ? 'Episódio baixado no PC (clique para reproduzir)' : 'Episódio baixado offline (clique para remover download)'
+                              ? isRemoteClient
+                                ? 'Episódio baixado no PC (clique para reproduzir)'
+                                : 'Episódio baixado offline (clique para remover download)'
+                              : isEpRetrying
+                              ? `Reconectando download (${downloadPct}%)`
                               : isEpDownloading
                               ? `Baixando episódio (${downloadPct}%)`
                               : isEpQueued
                               ? 'Aguardando na fila de download'
+                              : isEpError
+                              ? 'Erro no download (clique para tentar novamente)'
                               : 'Baixar episódio offline'
                           }
                         >
                           {isEpDownloaded ? (
                             <FiCheckCircle className="w-3.5 h-3.5 text-emerald-400" />
-                          ) : isEpDownloading ? (
-                            <FiLoader className="w-3.5 h-3.5 animate-spin text-blue-400" />
+                          ) : isEpActive ? (
+                            <FiLoader
+                              className={`w-3.5 h-3.5 animate-spin ${
+                                isEpRetrying ? 'text-amber-400' : 'text-blue-400'
+                              }`}
+                            />
                           ) : isEpQueued ? (
                             <FiClock className="w-3.5 h-3.5 text-amber-400" />
+                          ) : isEpError ? (
+                            <FiRotateCcw className="w-3.5 h-3.5 text-rose-400" />
                           ) : (
                             <FiDownload className="w-3.5 h-3.5" />
                           )}

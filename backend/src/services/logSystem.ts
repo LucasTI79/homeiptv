@@ -5,6 +5,8 @@ import 'winston-daily-rotate-file';
 import { LOGS_DIR } from '../config/paths';
 import { getSettings } from './settings';
 import type { LogSettings } from '@homeiptv/shared-types';
+import { WinstonLogger } from '../logging';
+import type { ILogger } from '../logging';
 
 let cachedLogSettings: LogSettings = {
   maxFiles: 5,
@@ -41,7 +43,7 @@ const consoleFormat = winston.format.combine(
   })
 );
 
-export const logger = winston.createLogger({
+const winstonInstance = winston.createLogger({
   level: 'info',
   format: logFormat,
   transports: [
@@ -59,13 +61,15 @@ export const logger = winston.createLogger({
   ],
 });
 
+export const logger: ILogger = new WinstonLogger(winstonInstance);
+
 export function refreshLogSettings(): void {
   try {
     const settings = getSettings();
     if (settings.logs) {
       cachedLogSettings = settings.logs;
       // Re-configure transports based on DB settings if necessary
-      const fileTransport = logger.transports.find(
+      const fileTransport = winstonInstance.transports.find(
         (t: any) => t.name === 'dailyRotateFile'
       ) as any;
 

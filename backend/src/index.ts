@@ -9,6 +9,7 @@ import { env } from './config/env';
 import { db } from './db/connection';
 import { PUBLIC_DIR } from './config/paths';
 import { requireAuth } from './middleware/auth';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { initializeLogSystem } from './services/logSystem';
 import { initializeVapid } from './services/vapid';
 import { checkAndSendNotifications } from './services/notificationChecker';
@@ -179,6 +180,11 @@ app.use('/api', localMediaRouter);
 const remoteHub = new MemoryRemoteSessionHub();
 app.use('/api/remote', createRemoteRouter(remoteHub));
 
+// Any /api/* path not matched by a router above is an unknown API route --
+// respond with the standard JSON error shape instead of falling through to
+// the SPA fallback (which would serve index.html for a bad API call).
+app.use('/api', notFoundHandler);
+
 // server.js:5241-5247 -- SPA fallback, must be registered last.
 app.get('*', (req, res) => {
   const filePath = path.join(PUBLIC_DIR, req.path);
@@ -199,6 +205,8 @@ detectHardwareAcceleration().then(() => {
 
 const server = http.createServer(app);
 setupRemoteWebSocketServer(server, remoteHub);
+
+app.use(errorHandler);
 
 server.listen(env.port, () => {
   console.log(`[viniplay-backend] listening on port ${env.port} (db client: ${env.dbClient})`);

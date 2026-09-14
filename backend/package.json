@@ -8,6 +8,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/src/index.js",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "migrate": "knex migrate:latest --knexfile src/db/knexfile.ts",
     "migrate:rollback": "knex migrate:rollback --knexfile src/db/knexfile.ts",
     "migrate:legacy-data": "tsx scripts/migrate-legacy-data.ts"
@@ -50,9 +52,11 @@
     "@types/node": "^22.7.4",
     "@types/node-schedule": "^2.1.7",
     "@types/pg": "^8.11.10",
+    "@types/supertest": "^6.0.2",
     "@types/uuid": "^10.0.0",
     "@types/web-push": "^3.6.4",
     "@types/ws": "^8.18.1",
+    "supertest": "^7.0.0",
     "ts-node": "^10.9.2",
     "tsx": "^4.19.1",
     "typescript": "^5.6.3"

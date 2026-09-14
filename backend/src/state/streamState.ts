@@ -1,5 +1,7 @@
 import type { ChildProcessWithoutNullStreams } from 'child_process';
 import { db } from '../db/connection';
+import { InMemoryConnectionHub } from '../services/connectionHub';
+import type { IConnectionHub } from '../services/connectionHub';
 
 // Ports the module-level state from server.js:31-60, 609-627 (activeStreamProcesses,
 // activeRedirectStreams, activeCastTokens, the janitor).
@@ -43,7 +45,7 @@ export interface CastTokenData {
 
 export const activeStreamProcesses = new Map<string, ActiveStreamInfo>();
 export const activeRedirectStreams = new Map<string, ActiveRedirectStreamInfo>();
-export const activeCastTokens = new Map<string, CastTokenData>();
+export const activeCastTokens: IConnectionHub<CastTokenData> = new InMemoryConnectionHub<CastTokenData>();
 
 export function updateActiveStream(
   streamKey: string,

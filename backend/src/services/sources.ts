@@ -201,105 +201,6 @@ interface ProcessResult {
   updatedSettings: Settings;
 }
 
-async function fetchM3uSourceContent(
-  source: M3uSource,
-  settings: Settings,
-  sendStatus: SendStatus,
-): Promise<string> {
-  if (source.type === 'file') {
-    const sourceFilePath = path.join(SOURCES_DIR, path.basename(source.path));
-    if (!fs.existsSync(sourceFilePath)) {
-      sendStatus(`Error: File not found for source "${source.name}". Skipping.`, 'error');
-      source.status = 'Error';
-      source.statusMessage = 'File not found.';
-      throw new Error('File not found.');
-    }
-    return fs.readFileSync(sourceFilePath, 'utf-8');
-  }
-
-  if (source.type === 'url') {
-    sendStatus(' -> Fetching content from URL...', 'info');
-    const content = await fetchUrlContent(source.path) as string;
-    try {
-      const cacheFilePath = path.join(RAW_CACHE_DIR, `raw_${source.id}.m3u_cache`);
-      fs.writeFileSync(cacheFilePath, content);
-      source.cachedRawPath = cacheFilePath;
-    } catch (cacheWriteError) {
-      console.error(`[PROCESS_CACHE] Failed to write raw cache for source "${source.name}" (URL):`, (cacheWriteError as Error).message);
-      delete source.cachedRawPath;
-    }
-    sendStatus(' -> Successfully fetched M3U content.', 'info');
-    return content;
-  }
-
-  // XC (Xtream Codes)
-  if (!source.xc_data) {
-    throw new Error('XC source is missing credential data (xc_data).');
-  }
-  const { server, username, password } = JSON.parse(source.xc_data) as { server?: string; username?: string; password?: string };
-  if (!server || !username || !password) {
-    throw new Error('XC source is missing server, username, or password.');
-  }
-
-  const activeUserAgent = settings.userAgents.find((ua) => ua.id === settings.activeUserAgentId)?.value || 'VLC/3.0.20 (Linux; x86_64)';
-  const m3uFetchOptions = { headers: { 'User-Agent': activeUserAgent } };
-
-  let content = '';
-  try {
-    sendStatus(' -> Fetching live categories and streams from XC server in parallel...', 'info');
-    const liveCategoriesUrl = `${server}/player_api.php?username=${username}&password=${password}&action=get_live_categories`;
-    const liveStreamsUrl = `${server}/player_api.php?username=${username}&password=${password}&action=get_live_streams`;
-
-    const [categoriesRaw, streamsRaw] = await Promise.all([
-      fetchUrlContent(liveCategoriesUrl, m3uFetchOptions),
-      fetchUrlContent(liveStreamsUrl, m3uFetchOptions),
-    ]);
-
-    const liveCategories = JSON.parse(categoriesRaw as string) as Array<{ category_id: string; category_name: string }>;
-    const liveStreams = JSON.parse(streamsRaw as string) as Array<{
-      stream_type: string; stream_id: string | number; name: string; stream_icon?: string; category_id?: string; epg_channel_id?: string;
-    }>;
-
-    let liveM3uContent = '';
-    let liveStreamCount = 0;
-    if (Array.isArray(liveStreams)) {
-      for (const stream of liveStreams) {
-        if (stream.stream_type === 'live') {
-          liveStreamCount++;
-          const streamUrl = `${server}/live/${username}/${password}/${stream.stream_id}.ts`;
-          const categoryName = Array.isArray(liveCategories)
-            ? liveCategories.find((cat) => String(cat.category_id) === String(stream.category_id))?.category_name || 'Live'
-            : 'Live';
-          const tvgId = stream.epg_channel_id || stream.stream_id;
-          liveM3uContent += `#EXTINF:-1 tvg-id="${tvgId}" tvg-name="${stream.name}" tvg-logo="${stream.stream_icon || ''}" group-title="${categoryName}",${stream.name}\n`;
-          liveM3uContent += `${streamUrl}\n`;
-        }
-      }
-    }
-
-    if (liveStreamCount > 0) {
-      content += '\n' + liveM3uContent;
-      sendStatus(` -> Added ${liveStreamCount} live streams to content.`, 'info');
-    } else {
-      sendStatus(" -> No live streams found with stream_type = 'live'.", 'info');
-    }
-  } catch (liveError) {
-    console.error(`[XC Live] Error fetching live streams for "${source.name}": ${(liveError as Error).message}`);
-    sendStatus(` -> Warning: Could not fetch live streams: ${(liveError as Error).message}`, 'warning');
-  }
-
-  try {
-    const cacheFilePath = path.join(RAW_CACHE_DIR, `raw_${source.id}.m3u_cache`);
-    fs.writeFileSync(cacheFilePath, content);
-    source.cachedRawPath = cacheFilePath;
-  } catch (cacheWriteError) {
-    console.error(`[PROCESS_CACHE] Failed to write raw cache for source "${source.name}" (XC):`, (cacheWriteError as Error).message);
-    delete source.cachedRawPath;
-  }
-  sendStatus(' -> Successfully fetched M3U content from XC server.', 'info');
-  return content;
-}
-
 // Helper to process async tasks concurrently with a maximum parallel pool limit
 async function mapConcurrent<T, R>(
   items: T[],
@@ -356,7 +257,8 @@ export async function processAndMergeSources(sendStatus: SendStatus = noopStatus
     let liveStreamCount = 0;
 
     try {
-      const content = await fetchM3uSourceContent(source, settings, sendStatus);
+      const { selectPlaylistStrategy } = await import('./sourceStrategies');
+      const content = await selectPlaylistStrategy(source.type).fetchContent(source, settings, sendStatus);
 
       // Trigger VOD refresh in background so Live channels load without delay
       const activeUserAgent = settings.userAgents.find((ua) => ua.id === settings.activeUserAgentId)?.value || 'VLC/3.0.20 (Linux; x86_64)';

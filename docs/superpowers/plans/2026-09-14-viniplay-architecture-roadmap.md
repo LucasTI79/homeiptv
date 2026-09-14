@@ -72,8 +72,8 @@ Each phase's plan must end with:
 
 - [x] Phase 1: Error handling foundation — plan: `2026-09-14-error-handling-foundation.md` (merged to main)
 - [x] Phase 2: Injectable logger — plan: `2026-09-14-injectable-logger.md` (merged to main)
-- [ ] Phase 3: Connection hub generalization — plan: `2026-09-14-connection-hub.md`
-- [ ] Phase 4: Playlist source strategy
+- [x] Phase 3: Connection hub generalization — plan: `2026-09-14-connection-hub.md` (merged to main)
+- [ ] Phase 4: Playlist source strategy — plan: `2026-09-14-playlist-source-strategy.md`
 - [ ] Phase 5: Route → service/repository extraction
 - [ ] Phase 6: Subtitle/thumbnail provider chain
 - [ ] Phase 7: Test infrastructure (testcontainers + supertest)

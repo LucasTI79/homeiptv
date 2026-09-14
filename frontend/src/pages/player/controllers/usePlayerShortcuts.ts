@@ -267,7 +267,18 @@ export function usePlayerShortcuts(
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   }, []);
 
-  // Remote Control sync: host state to mobile
+  const lastRemoteSyncRef = useRef<{
+    timestamp: number;
+    currentTime: number;
+    isPaused: boolean;
+    channelId?: string;
+  }>({
+    timestamp: 0,
+    currentTime: 0,
+    isPaused: true,
+  });
+
+  // Remote Control sync: host state to mobile with throttling (max 1x per second during playback, instant on pause/seek/channel change)
   useEffect(() => {
     if (!selectedChannel) return;
     const isPaused = isCasting ? castIsPaused : !isPlaying;
@@ -277,6 +288,24 @@ export function usePlayerShortcuts(
       : (duration > 0 ? duration : (selectedChannel.duration ?? 0));
     const effectiveVolume = isCasting ? castVolume : volume;
     const effectiveIsMuted = isCasting ? castIsMuted : isMuted;
+
+    const last = lastRemoteSyncRef.current;
+    const now = Date.now();
+    const isChannelChanged = last.channelId !== selectedChannel.id;
+    const isPauseStateChanged = last.isPaused !== isPaused;
+    const isSeekJump = Math.abs(effectiveCurrentTime - last.currentTime) > 3;
+    const isThrottled = now - last.timestamp < 1000;
+
+    if (!isChannelChanged && !isPauseStateChanged && !isSeekJump && isThrottled) {
+      return;
+    }
+
+    lastRemoteSyncRef.current = {
+      timestamp: now,
+      currentTime: effectiveCurrentTime,
+      isPaused,
+      channelId: selectedChannel.id,
+    };
 
     useRemoteStore.getState().syncHostPlayback({
       title: selectedChannel.name,
@@ -323,19 +352,6 @@ export function usePlayerShortcuts(
     activeIntroSegment,
     playbackSpeed,
   ]);
-
-  // Sync favorites/watched/progress with remote store
-  const favorites = usePlaybackStore((s) => s.favorites);
-  const watchedSummary = usePlaybackStore((s) => s.watchedSummary);
-  const storedProgress = usePlaybackStore((s) => s.progress);
-
-  useEffect(() => {
-    useRemoteStore.getState().syncHostUserContext({
-      favorites,
-      watchedSummary,
-      progress: storedProgress,
-    });
-  }, [favorites, watchedSummary, storedProgress]);
 
   // Execute commands received from remote mobile client
   useEffect(() => {

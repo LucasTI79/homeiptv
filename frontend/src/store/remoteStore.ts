@@ -376,15 +376,18 @@ export const useRemoteStore = create<RemoteStoreState>((set, get) => {
   };
 });
 
-// Auto-sync host user context (favorites, watched, progress) whenever playbackStore changes
-usePlaybackStore.subscribe((state, prevState) => {
-  const remote = useRemoteStore.getState();
-  if (remote.role === 'host' && remote.isPaired && remote.clientCount > 0) {
-    if (
-      state.favorites !== prevState.favorites ||
-      state.watchedSummary !== prevState.watchedSummary ||
-      state.progress !== prevState.progress
-    ) {
+// Auto-sync host user context (favorites, watched, downloads) with debouncing
+let userContextDebounceTimer: any = null;
+let lastCompletedDownloadsCache: string = '';
+
+function scheduleDebouncedUserContextSync() {
+  if (userContextDebounceTimer) {
+    clearTimeout(userContextDebounceTimer);
+  }
+  userContextDebounceTimer = setTimeout(() => {
+    const remote = useRemoteStore.getState();
+    if (remote.role === 'host' && remote.isPaired && remote.clientCount > 0) {
+      const state = usePlaybackStore.getState();
       remote.syncHostUserContext({
         favorites: state.favorites,
         watchedSummary: state.watchedSummary,
@@ -392,21 +395,35 @@ usePlaybackStore.subscribe((state, prevState) => {
         completedDownloads: getCompletedDownloadIds(),
       });
     }
-  }
-});
+  }, 2000);
+}
 
-// Auto-sync host downloads whenever downloadStore changes
-useDownloadStore.subscribe((state, prevState) => {
+// Auto-sync host user context only when favorites or watched status change (avoiding spam on every second of video progress)
+usePlaybackStore.subscribe((state, prevState) => {
   const remote = useRemoteStore.getState();
   if (remote.role === 'host' && remote.isPaired && remote.clientCount > 0) {
-    if (state.tasks !== prevState.tasks) {
-      const pb = usePlaybackStore.getState();
-      remote.syncHostUserContext({
-        favorites: pb.favorites,
-        watchedSummary: pb.watchedSummary,
-        progress: pb.progress,
-        completedDownloads: getCompletedDownloadIds(),
-      });
+    if (
+      state.favorites !== prevState.favorites ||
+      state.watchedSummary !== prevState.watchedSummary
+    ) {
+      scheduleDebouncedUserContextSync();
     }
   }
 });
+
+// Auto-sync host downloads only when completed tasks change (ignoring raw byte progress chunks)
+useDownloadStore.subscribe((state) => {
+  const remote = useRemoteStore.getState();
+  if (remote.role === 'host' && remote.isPaired && remote.clientCount > 0) {
+    const completed = Object.values(state.tasks)
+      .filter((t) => t.status === 'completed')
+      .map((t) => t.id)
+      .sort()
+      .join(',');
+    if (completed !== lastCompletedDownloadsCache) {
+      lastCompletedDownloadsCache = completed;
+      scheduleDebouncedUserContextSync();
+    }
+  }
+});
+

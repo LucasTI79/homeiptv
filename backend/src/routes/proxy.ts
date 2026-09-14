@@ -166,8 +166,8 @@ proxyRouter.get('/playlist-proxy', requireAuth, (req, res) => {
   res.send(out);
 });
 
-const proxyHttpAgent = new http.Agent({ keepAlive: true, maxSockets: 64, keepAliveMsecs: 15000 });
-const proxyHttpsAgent = new https.Agent({ keepAlive: true, maxSockets: 64, keepAliveMsecs: 15000 });
+const proxyHttpAgent = new http.Agent({ keepAlive: true, maxSockets: 32, maxFreeSockets: 8, keepAliveMsecs: 5000 });
+const proxyHttpsAgent = new https.Agent({ keepAlive: true, maxSockets: 32, maxFreeSockets: 8, keepAliveMsecs: 5000 });
 
 // Stream proxy endpoint to forward VOD video streams with redirect follow & HTTP Range support
 const mediaProxyAuth = allowLocalOrAuth(activeCastTokens);

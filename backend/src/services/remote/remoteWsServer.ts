@@ -5,6 +5,10 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { IRemoteSessionHub } from './IRemoteSessionHub';
 import { RemoteMessage } from '@homeiptv/shared-types';
 
+interface ExtWebSocket extends WebSocket {
+  isAlive?: boolean;
+}
+
 export function setupRemoteWebSocketServer(
   httpServer: http.Server,
   hub: IRemoteSessionHub
@@ -51,29 +55,55 @@ export function setupRemoteWebSocketServer(
     }
   });
 
-  wss.on('connection', async (ws: WebSocket, _request: http.IncomingMessage, context: { sessionId: string; role: 'host' | 'client' }) => {
+  const MAX_BUFFERED_AMOUNT = 64 * 1024; // 64 KB
+  const CRITICAL_STALL_BUFFER = 512 * 1024; // 512 KB
+
+  wss.on('connection', async (rawWs: WebSocket, _request: http.IncomingMessage, context: { sessionId: string; role: 'host' | 'client' }) => {
+    const ws = rawWs as ExtWebSocket;
     const socketId = crypto.randomUUID();
     const { sessionId, role } = context;
 
-    let isAlive = true;
+    ws.isAlive = true;
     ws.on('pong', () => {
-      isAlive = true;
+      ws.isAlive = true;
     });
 
-    const unsubscribe = hub.subscribeToSession(sessionId, socketId, (msg: RemoteMessage) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(msg));
+    const safeSend = (msg: RemoteMessage) => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+
+      // Backpressure protection:
+      // If the client socket buffer is backed up (e.g. mobile device on slow Wi-Fi or screen sleep),
+      // drop high-frequency ephemeral updates (SYNC_STATE, SYNC_USER_CONTEXT) to prevent V8 heap explosion.
+      if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
+        if (msg.type === 'SYNC_STATE' || msg.type === 'SYNC_USER_CONTEXT') {
+          return;
+        }
+        if (ws.bufferedAmount > CRITICAL_STALL_BUFFER) {
+          console.warn(`[remoteWsServer] Client ${socketId} socket completely stalled (${ws.bufferedAmount} bytes). Terminating.`);
+          ws.terminate();
+          return;
+        }
       }
+
+      try {
+        ws.send(JSON.stringify(msg));
+      } catch (err) {
+        console.warn(`[remoteWsServer] Send error to ${socketId}:`, err);
+      }
+    };
+
+    const unsubscribe = hub.subscribeToSession(sessionId, socketId, (msg: RemoteMessage) => {
+      safeSend(msg);
     });
 
     // If client connects, send initial state and user context if available
     const session = await hub.getSession(sessionId);
     if (ws.readyState === WebSocket.OPEN) {
       if (session?.nowPlaying) {
-        ws.send(JSON.stringify({ type: 'SYNC_STATE', payload: session.nowPlaying }));
+        safeSend({ type: 'SYNC_STATE', payload: session.nowPlaying });
       }
       if (session?.userContext) {
-        ws.send(JSON.stringify({ type: 'SYNC_USER_CONTEXT', payload: session.userContext }));
+        safeSend({ type: 'SYNC_USER_CONTEXT', payload: session.userContext });
       }
     }
 
@@ -91,7 +121,7 @@ export function setupRemoteWebSocketServer(
 
         if (message.type === 'PING') {
           if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'PONG' }));
+            safeSend({ type: 'PONG' });
           }
           return;
         }
@@ -100,10 +130,10 @@ export function setupRemoteWebSocketServer(
           const current = await hub.getSession(sessionId);
           if (ws.readyState === WebSocket.OPEN) {
             if (current?.nowPlaying) {
-              ws.send(JSON.stringify({ type: 'SYNC_STATE', payload: current.nowPlaying }));
+              safeSend({ type: 'SYNC_STATE', payload: current.nowPlaying });
             }
             if (current?.userContext) {
-              ws.send(JSON.stringify({ type: 'SYNC_USER_CONTEXT', payload: current.userContext }));
+              safeSend({ type: 'SYNC_USER_CONTEXT', payload: current.userContext });
             }
           }
           return;
@@ -142,12 +172,16 @@ export function setupRemoteWebSocketServer(
     });
   });
 
-  // Heartbeat check every 20 seconds
+  // Heartbeat check every 20 seconds: terminate unresponsive zombie sockets
   const pingInterval = setInterval(() => {
-    wss.clients.forEach((ws) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.ping();
+    wss.clients.forEach((client) => {
+      const extWs = client as ExtWebSocket;
+      if (extWs.isAlive === false) {
+        console.log('[remoteWsServer] Terminating unresponsive zombie socket');
+        return extWs.terminate();
       }
+      extWs.isAlive = false;
+      extWs.ping();
     });
   }, 20000);
 

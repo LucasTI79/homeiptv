@@ -74,12 +74,17 @@ export function usePlayerEngine(
     setRetryNonce((n) => n + 1);
   }, []);
 
-  // Automatically dismiss loading state when video actually starts playback or buffers
+  // Automatically dismiss loading state when video actually starts playback or buffers,
+  // and provide auto-recovery on transient network drops
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
+    let networkRetryTimeout: ReturnType<typeof setTimeout> | null = null;
+    let networkRetryCount = 0;
+
     const handlePlaying = () => {
+      networkRetryCount = 0;
       setLoadingStage('idle');
     };
 
@@ -99,16 +104,52 @@ export function usePlayerEngine(
       }
     };
 
+    const handleError = () => {
+      const err = video.error;
+      if (!err) return;
+
+      console.warn('[PlayerEngine] Video element error encountered:', err.code, err.message);
+
+      // MediaError.MEDIA_ERR_NETWORK = 2 (network error during range fetch)
+      if (err.code === 2 && networkRetryCount < 3) {
+        networkRetryCount += 1;
+        const resumePos = video.currentTime;
+        setLoadingStage('buffering');
+        console.log(
+          `[PlayerEngine] Transient network drop detected. Auto-recovering (attempt ${networkRetryCount}/3) at ${resumePos}s...`
+        );
+
+        networkRetryTimeout = setTimeout(() => {
+          if (!videoRef.current) return;
+          const v = videoRef.current;
+          v.load();
+          const onLoaded = () => {
+            v.removeEventListener('loadedmetadata', onLoaded);
+            if (resumePos > 0) {
+              v.currentTime = resumePos;
+            }
+            void Promise.resolve(v.play()).catch(() => {});
+          };
+          v.addEventListener('loadedmetadata', onLoaded);
+        }, 1500 * networkRetryCount);
+      }
+    };
+
     video.addEventListener('playing', handlePlaying);
     video.addEventListener('canplay', handleCanPlay);
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('waiting', handleWaiting);
+    video.addEventListener('error', handleError);
 
     return () => {
+      if (networkRetryTimeout) {
+        clearTimeout(networkRetryTimeout);
+      }
       video.removeEventListener('playing', handlePlaying);
       video.removeEventListener('canplay', handleCanPlay);
       video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('waiting', handleWaiting);
+      video.removeEventListener('error', handleError);
     };
   }, [videoRef]);
 

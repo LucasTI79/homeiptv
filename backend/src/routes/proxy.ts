@@ -166,6 +166,9 @@ proxyRouter.get('/playlist-proxy', requireAuth, (req, res) => {
   res.send(out);
 });
 
+const proxyHttpAgent = new http.Agent({ keepAlive: true, maxSockets: 64, keepAliveMsecs: 15000 });
+const proxyHttpsAgent = new https.Agent({ keepAlive: true, maxSockets: 64, keepAliveMsecs: 15000 });
+
 // Stream proxy endpoint to forward VOD video streams with redirect follow & HTTP Range support
 const mediaProxyAuth = allowLocalOrAuth(activeCastTokens);
 
@@ -259,12 +262,15 @@ proxyRouter.all('/media-proxy', mediaProxyAuth, (req, res) => {
       currentProxyReq = null;
     }
 
-    const client = parsed.protocol === 'https:' ? https : http;
+    const isHttps = parsed.protocol === 'https:';
+    const client = isHttps ? https : http;
     const proxyReq = client.request(
       parsed,
       {
         method: req.method === 'HEAD' ? 'HEAD' : 'GET',
         headers,
+        agent: isHttps ? proxyHttpsAgent : proxyHttpAgent,
+        timeout: 30000,
       },
       (upstreamRes) => {
         if (isClosed) {
@@ -348,6 +354,13 @@ proxyRouter.all('/media-proxy', mediaProxyAuth, (req, res) => {
     );
 
     currentProxyReq = proxyReq;
+
+    proxyReq.on('timeout', () => {
+      if (!isClosed) {
+        console.warn(`[MEDIA_PROXY] Upstream timeout for ${urlStr}`);
+        proxyReq.destroy(new Error('Upstream IPTV connection timeout'));
+      }
+    });
 
     proxyReq.on('error', (err) => {
       if (!isClosed) {

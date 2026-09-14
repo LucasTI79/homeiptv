@@ -18,5 +18,7 @@
 	# Upstream is injected via the CADDY_UPSTREAM env var set in docker-compose.yml
 	# (defaults to the "homeiptv" container; set it to host.docker.internal:8998
 	# to proxy to a `node server.js` running directly on the host instead).
-	reverse_proxy {$CADDY_UPSTREAM}
+	reverse_proxy {$CADDY_UPSTREAM} {
+		flush_interval -1
+	}
 }

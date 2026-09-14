@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { errorHandler, notFoundHandler } from '../errorHandler';
@@ -19,6 +19,49 @@ function buildApp() {
 }
 
 describe('errorHandler', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('delegates to next(err) instead of writing a new response when headers are already sent', () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const err = new Error('failure mid-stream');
+    const jsonSpy = vi.fn();
+    const statusSpy = vi.fn(() => ({ json: jsonSpy }));
+    const nextSpy = vi.fn();
+
+    const req = { method: 'GET', originalUrl: '/partial-response' } as unknown as Parameters<typeof errorHandler>[1];
+    const res = {
+      headersSent: true,
+      status: statusSpy,
+      json: jsonSpy,
+    } as unknown as Parameters<typeof errorHandler>[2];
+
+    errorHandler(err, req, res, nextSpy);
+
+    // Must not attempt to write a new response on top of one already started.
+    expect(statusSpy).not.toHaveBeenCalled();
+    expect(jsonSpy).not.toHaveBeenCalled();
+    expect(nextSpy).toHaveBeenCalledWith(err);
+    expect(
+      consoleErrorSpy.mock.calls.some((call) =>
+        String(call[0]).includes('Error after response started on GET /partial-response')
+      )
+    ).toBe(true);
+  });
+
+  it('logs the request method and URL for unhandled errors', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await request(buildApp()).get('/unknown-error');
+
+    expect(
+      consoleErrorSpy.mock.calls.some((call) =>
+        String(call[0]).includes('Unhandled error on GET /unknown-error')
+      )
+    ).toBe(true);
+  });
+
   it('maps a NotFoundError to a 404 with the standard shape', async () => {
     const res = await request(buildApp()).get('/known-error');
     expect(res.status).toBe(404);

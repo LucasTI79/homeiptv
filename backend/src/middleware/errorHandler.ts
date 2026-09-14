@@ -14,8 +14,16 @@ export function notFoundHandler(_req: Request, res: Response): void {
   res.status(404).json(body);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- Express requires 4 params to recognize this as error middleware
-export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction): void {
+export function errorHandler(err: unknown, req: Request, res: Response, next: NextFunction): void {
+  if (res.headersSent) {
+    console.error(
+      `[ERROR_HANDLER] Error after response started on ${req.method} ${req.originalUrl}:`,
+      err instanceof Error ? err.stack || err.message : err
+    );
+    next(err);
+    return;
+  }
+
   if (isAppError(err)) {
     const body: ErrorResponseBody = { error: { code: err.code, message: err.message } };
     if (err.details !== undefined) {
@@ -25,7 +33,10 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
     return;
   }
 
-  console.error('[ERROR_HANDLER] Unhandled error:', err instanceof Error ? err.stack || err.message : err);
+  console.error(
+    `[ERROR_HANDLER] Unhandled error on ${req.method} ${req.originalUrl}:`,
+    err instanceof Error ? err.stack || err.message : err
+  );
   const body: ErrorResponseBody = { error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred.' } };
   res.status(500).json(body);
 }

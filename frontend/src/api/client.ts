@@ -24,7 +24,11 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
     let message = res.statusText;
     try {
       const body = await res.json();
-      if (body?.error) message = body.error;
+      if (typeof body?.error === 'string') {
+        message = body.error;
+      } else if (typeof body?.error?.message === 'string') {
+        message = body.error.message;
+      }
     } catch {
       // response wasn't JSON, keep statusText
     }

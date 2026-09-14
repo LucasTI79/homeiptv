@@ -182,7 +182,7 @@ import xmlJS from 'xml-js';
 import zlib from 'zlib';
 import type { M3uSource, EpgSource, Settings } from '@homeiptv/shared-types';
 import { getSettings } from './settings';
-import { SOURCES_DIR, RAW_CACHE_DIR, LIVE_CHANNELS_M3U_PATH, LIVE_EPG_JSON_PATH } from '../config/paths';
+import { SOURCES_DIR, LIVE_CHANNELS_M3U_PATH, LIVE_EPG_JSON_PATH } from '../config/paths';
 
 export type SendStatus = (message: string, type?: string) => void;
 const noopStatus: SendStatus = () => {};
@@ -257,6 +257,18 @@ export async function processAndMergeSources(sendStatus: SendStatus = noopStatus
     let liveStreamCount = 0;
 
     try {
+      // This MUST stay a dynamic import, not a static top-of-file one. Statically
+      // importing `selectPlaylistStrategy` here closes a circular dependency at
+      // module-load time: sources.ts -> sourceStrategies/index.ts ->
+      // M3uUrlStrategy.ts/XtreamCodesStrategy.ts -> ../sources (for
+      // fetchUrlContent). That cycle re-enters those two strategies' mocked
+      // `../sources` module mid-initialization in their own test suites
+      // (vi.mock + vi.importActual), so fetchUrlContent stops being properly
+      // stubbed and the tests make real network calls. The real fix is to
+      // extract fetchUrlContent/SendStatus into their own module (e.g.
+      // backend/src/services/httpFetch.ts) that both sides import from instead
+      // of sources.ts, which breaks the cycle for good -- at that point this
+      // can become a normal static import again. Tracked for Phase 5.
       const { selectPlaylistStrategy } = await import('./sourceStrategies');
       const content = await selectPlaylistStrategy(source.type).fetchContent(source, settings, sendStatus);
 

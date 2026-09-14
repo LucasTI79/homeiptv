@@ -29,6 +29,22 @@ requires). Do not "fix" this by moving `fetchUrlContent` elsewhere — that
 is out of scope for this plan and would touch call sites (`routes/sources.ts`)
 this plan doesn't otherwise need to touch.
 
+> **Correction (post-implementation):** the reasoning above was wrong for
+> one direction of this cycle. `sources.ts` statically importing
+> `selectPlaylistStrategy` DOES close the cycle at module-load time,
+> because the registry (`sourceStrategies/index.ts`) constructs all 3
+> strategy instances eagerly at module evaluation — deferred *use* of
+> `fetchUrlContent` is not the same as deferred *binding* of the modules
+> that reference it. This broke `M3uUrlStrategy.test.ts`/
+> `XtreamCodesStrategy.test.ts`'s mocking setup in practice (Task 5). The
+> fix landed was a call-time dynamic `import()` in `sources.ts` (see the
+> comment at its call site). The claim that fixing this "would touch call
+> sites" was also overstated: `fetchUrlContent` has exactly one
+> non-strategy importer (`backend/src/routes/sources.ts`). **Phase 5
+> should make extracting `fetchUrlContent`/`SendStatus` into a standalone
+> module (e.g. `backend/src/services/httpFetch.ts`) its first step**, then
+> revert the dynamic import back to static.
+
 **Tech Stack:** TypeScript, Vitest.
 
 **Spec:** N/A — derived directly from the architecture review in this

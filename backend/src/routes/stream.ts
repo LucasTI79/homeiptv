@@ -194,7 +194,7 @@ streamRouter.route('/stream')
   res.status(200).end();
 });
 
-streamRouter.post('/api/cast/generate-token', requireAuth, (req, res, next) => {
+streamRouter.post('/api/cast/generate-token', requireAuth, async (req, res, next) => {
   try {
     const { streamUrl } = req.body as { streamUrl?: string };
     const userId = req.session.userId as number;
@@ -203,13 +203,8 @@ streamRouter.post('/api/cast/generate-token', requireAuth, (req, res, next) => {
     }
 
     const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = Date.now() + 6 * 60 * 60 * 1000;
-    activeCastTokens.set(token, { userId, streamUrl, expiresAt, createdAt: Date.now() });
-
-    setTimeout(() => {
-      activeCastTokens.delete(token);
-      console.log(`[CAST_TOKEN] Token expired and removed: ${token.substring(0, 8)}...`);
-    }, 6 * 60 * 60 * 1000);
+    const ttlMs = 6 * 60 * 60 * 1000;
+    await activeCastTokens.set(token, { userId, streamUrl, expiresAt: Date.now() + ttlMs, createdAt: Date.now() }, ttlMs);
 
     console.log(`[CAST_TOKEN] Generated token for user ${userId}, expires in 6 hours`);
     res.json({ token });

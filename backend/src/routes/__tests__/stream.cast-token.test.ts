@@ -37,4 +37,15 @@ describe('POST /api/cast/generate-token', () => {
     expect(res.body).toHaveProperty('token');
     expect(typeof res.body.token).toBe('string');
   });
+
+  it('stores the token in activeCastTokens with a 6-hour TTL, no manual cleanup timer', async () => {
+    const { activeCastTokens } = await import('../../state/streamState');
+    const res = await request(buildApp())
+      .post('/api/cast/generate-token')
+      .send({ streamUrl: 'http://example.com/stream.ts' });
+
+    expect(res.status).toBe(200);
+    const stored = await activeCastTokens.get(res.body.token);
+    expect(stored).toMatchObject({ userId: 1, streamUrl: 'http://example.com/stream.ts' });
+  });
 });

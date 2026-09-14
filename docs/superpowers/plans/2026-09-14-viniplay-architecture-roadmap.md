@@ -59,6 +59,18 @@ phases can depend on earlier ones without rework:
    dependency on other phases; can run anytime, sequenced last only because
    it's lowest risk/value here.
 
+## Note for Phase 5 (added post-Phase-4)
+
+Phase 4 left a latent circular dependency between `sources.ts` and
+`sourceStrategies/` (worked around with a dynamic `import()`, documented
+at its call site and in Phase 4's plan doc). **Phase 5's first step should
+be extracting `fetchUrlContent`/`SendStatus` out of `sources.ts` into a
+standalone module** (e.g. `backend/src/services/httpFetch.ts`) that both
+`sources.ts` and the strategies import from — this breaks the cycle for
+good, at which point the dynamic import in `sources.ts` can revert to a
+normal static one. See `2026-09-14-playlist-source-strategy.md`'s
+Architecture section correction note for full detail.
+
 ## Definition of done per phase
 
 Each phase's plan must end with:

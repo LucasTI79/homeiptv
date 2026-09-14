@@ -70,8 +70,8 @@ Each phase's plan must end with:
 
 ## Status
 
-- [ ] Phase 1: Error handling foundation — plan: `2026-09-14-error-handling-foundation.md`
-- [ ] Phase 2: Injectable logger
+- [x] Phase 1: Error handling foundation — plan: `2026-09-14-error-handling-foundation.md` (merged to main)
+- [ ] Phase 2: Injectable logger — plan: `2026-09-14-injectable-logger.md`
 - [ ] Phase 3: Connection hub generalization
 - [ ] Phase 4: Playlist source strategy
 - [ ] Phase 5: Route → service/repository extraction

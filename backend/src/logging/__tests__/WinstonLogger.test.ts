@@ -24,9 +24,9 @@ describe('WinstonLogger', () => {
     logger.debug('trace');
 
     expect(fake.info).toHaveBeenCalledWith('hello', { a: 1 });
-    expect(fake.warn).toHaveBeenCalledWith('careful', undefined);
+    expect(fake.warn).toHaveBeenCalledWith('careful');
     expect(fake.error).toHaveBeenCalledWith('boom', { err: 'detail' });
-    expect(fake.debug).toHaveBeenCalledWith('trace', undefined);
+    expect(fake.debug).toHaveBeenCalledWith('trace');
     expect(calls).toHaveLength(4);
   });
 
@@ -39,5 +39,29 @@ describe('WinstonLogger', () => {
 
     expect(fake.child).toHaveBeenCalledWith({ module: 'VAPID' });
     expect(child).toBeInstanceOf(WinstonLogger);
+    expect(fake.info).toHaveBeenCalledWith('scoped message');
+  });
+
+  it('does not forward a second argument to winston when meta is omitted (regression)', () => {
+    const { fake } = buildFakeWinstonLogger();
+    const logger = new WinstonLogger(fake as never);
+
+    logger.info('some message');
+
+    expect(fake.info).toHaveBeenCalledWith('some message');
+    expect(fake.info.mock.calls[0]).toHaveLength(1);
+  });
+
+  it('normalizes Error instances in meta so message/stack survive JSON serialization', () => {
+    const { fake } = buildFakeWinstonLogger();
+    const logger = new WinstonLogger(fake as never);
+
+    logger.error('boom', { error: new Error('detail message') });
+
+    const forwardedMeta = fake.error.mock.calls[0][1] as { error: { message: string; stack?: string; name: string } };
+    expect(forwardedMeta.error).not.toBeInstanceOf(Error);
+    expect(forwardedMeta.error.message).toBe('detail message');
+    expect(typeof forwardedMeta.error.stack).toBe('string');
+    expect(JSON.stringify(forwardedMeta)).toContain('detail message');
   });
 });

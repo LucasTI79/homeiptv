@@ -9,6 +9,7 @@ import { allowLocalOrAuth } from '../middleware/allowLocalOrAuth';
 import { getSettings } from '../services/settings';
 import { parseM3U } from '../services/sources';
 import { LIVE_CHANNELS_M3U_PATH } from '../config/paths';
+import { ValidationError } from '../errors';
 import {
   activeStreamProcesses,
   activeRedirectStreams,
@@ -193,12 +194,12 @@ streamRouter.route('/stream')
   res.status(200).end();
 });
 
-streamRouter.post('/api/cast/generate-token', requireAuth, (req, res) => {
+streamRouter.post('/api/cast/generate-token', requireAuth, (req, res, next) => {
   try {
     const { streamUrl } = req.body as { streamUrl?: string };
     const userId = req.session.userId as number;
     if (!streamUrl) {
-      return res.status(400).json({ error: 'streamUrl is required' });
+      throw new ValidationError('streamUrl is required');
     }
 
     const token = crypto.randomBytes(32).toString('hex');
@@ -213,8 +214,7 @@ streamRouter.post('/api/cast/generate-token', requireAuth, (req, res) => {
     console.log(`[CAST_TOKEN] Generated token for user ${userId}, expires in 6 hours`);
     res.json({ token });
   } catch (error) {
-    console.error('[CAST_TOKEN] Error generating token:', error);
-    res.status(500).json({ error: 'Failed to generate cast token' });
+    next(error);
   }
 });
 

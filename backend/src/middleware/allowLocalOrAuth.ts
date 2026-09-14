@@ -10,17 +10,17 @@ import type { Request, Response, NextFunction } from 'express';
 // (e.g. the image proxy) use the no-op emptyCastTokenStore default below
 // since cast tokens are only meaningful for stream playback.
 export interface CastTokenStore {
-  get(token: string): { userId: number; username?: string; expiresAt: number } | undefined;
-  delete(token: string): void;
+  get(token: string): Promise<{ userId: number; username?: string; expiresAt: number } | undefined>;
+  delete(token: string): Promise<void>;
 }
 
 const emptyCastTokenStore: CastTokenStore = {
-  get: () => undefined,
-  delete: () => {},
+  get: async () => undefined,
+  delete: async () => {},
 };
 
 export function allowLocalOrAuth(castTokens: CastTokenStore = emptyCastTokenStore) {
-  return (req: Request, res: Response, next: NextFunction) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
     if (req.session?.userId) {
       return next();
     }
@@ -35,7 +35,7 @@ export function allowLocalOrAuth(castTokens: CastTokenStore = emptyCastTokenStor
 
     const castToken = req.query.castToken as string | undefined;
     if (castToken) {
-      const tokenData = castTokens.get(castToken);
+      const tokenData = await castTokens.get(castToken);
       if (!tokenData) {
         setCorsHeaders();
         console.warn(`[STREAM_AUTH] Invalid cast token: ${castToken.substring(0, 8)}...`);
@@ -44,7 +44,7 @@ export function allowLocalOrAuth(castTokens: CastTokenStore = emptyCastTokenStor
       if (tokenData.expiresAt < Date.now()) {
         setCorsHeaders();
         console.warn(`[STREAM_AUTH] Expired cast token: ${castToken.substring(0, 8)}...`);
-        castTokens.delete(castToken);
+        await castTokens.delete(castToken);
         return res.status(401).send('Expired cast token');
       }
 

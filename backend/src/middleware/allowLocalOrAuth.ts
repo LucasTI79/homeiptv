@@ -35,24 +35,28 @@ export function allowLocalOrAuth(castTokens: CastTokenStore = emptyCastTokenStor
 
     const castToken = req.query.castToken as string | undefined;
     if (castToken) {
-      const tokenData = await castTokens.get(castToken);
-      if (!tokenData) {
-        setCorsHeaders();
-        console.warn(`[STREAM_AUTH] Invalid cast token: ${castToken.substring(0, 8)}...`);
-        return res.status(401).send('Invalid cast token');
-      }
-      if (tokenData.expiresAt < Date.now()) {
-        setCorsHeaders();
-        console.warn(`[STREAM_AUTH] Expired cast token: ${castToken.substring(0, 8)}...`);
-        await castTokens.delete(castToken);
-        return res.status(401).send('Expired cast token');
-      }
+      try {
+        const tokenData = await castTokens.get(castToken);
+        if (!tokenData) {
+          setCorsHeaders();
+          console.warn(`[STREAM_AUTH] Invalid cast token: ${castToken.substring(0, 8)}...`);
+          return res.status(401).send('Invalid cast token');
+        }
+        if (tokenData.expiresAt < Date.now()) {
+          setCorsHeaders();
+          console.warn(`[STREAM_AUTH] Expired cast token: ${castToken.substring(0, 8)}...`);
+          await castTokens.delete(castToken);
+          return res.status(401).send('Expired cast token');
+        }
 
-      req.session = req.session || ({} as Request['session']);
-      req.session.userId = tokenData.userId;
-      req.session.username = 'Cast User';
-      // Do not delete token immediately; media streaming issues multiple Range requests throughout playback
-      return next();
+        req.session = req.session || ({} as Request['session']);
+        req.session.userId = tokenData.userId;
+        req.session.username = 'Cast User';
+        // Do not delete token immediately; media streaming issues multiple Range requests throughout playback
+        return next();
+      } catch (error) {
+        return next(error);
+      }
     }
 
     const rawIp = (req.ip || '').trim();

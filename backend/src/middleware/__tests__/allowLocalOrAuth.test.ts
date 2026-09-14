@@ -7,6 +7,10 @@ function buildApp(castTokens?: CastTokenStore) {
   const app = express();
   app.use(allowLocalOrAuth(castTokens));
   app.get('/protected', (_req, res) => res.json({ ok: true }));
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    res.status(500).json({ error: err.message });
+  });
   return app;
 }
 
@@ -46,5 +50,19 @@ describe('allowLocalOrAuth', () => {
     expect(res.status).toBe(401);
     expect(res.text).toContain('Expired cast token');
     expect(store.delete).toHaveBeenCalledWith('expired-token');
+  });
+
+  it('forwards to error handling instead of hanging when the store rejects', async () => {
+    const store: CastTokenStore = {
+      get: vi.fn(async () => {
+        throw new Error('store unavailable');
+      }),
+      delete: vi.fn(async () => {}),
+    };
+
+    const res = await request(buildApp(store)).get('/protected?castToken=any-token');
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: 'store unavailable' });
   });
 });

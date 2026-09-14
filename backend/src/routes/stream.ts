@@ -204,7 +204,15 @@ streamRouter.post('/api/cast/generate-token', requireAuth, async (req, res, next
 
     const token = crypto.randomBytes(32).toString('hex');
     const ttlMs = 6 * 60 * 60 * 1000;
-    await activeCastTokens.set(token, { userId, streamUrl, expiresAt: Date.now() + ttlMs, createdAt: Date.now() }, ttlMs);
+    const now = Date.now();
+    const expiresAt = now + ttlMs;
+    // Give the hub's own lazy-expiry a small grace margin beyond expiresAt so
+    // the middleware's `tokenData.expiresAt < Date.now()` check (which
+    // reports the more specific "Expired cast token" response) is the one
+    // that actually fires, rather than the hub silently deleting the entry
+    // first and the middleware only ever seeing "Invalid cast token".
+    const hubGraceMs = 60_000;
+    await activeCastTokens.set(token, { userId, streamUrl, expiresAt, createdAt: now }, ttlMs + hubGraceMs);
 
     console.log(`[CAST_TOKEN] Generated token for user ${userId}, expires in 6 hours`);
     res.json({ token });

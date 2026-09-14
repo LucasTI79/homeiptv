@@ -58,16 +58,15 @@ describe('POST /api/cast/generate-token', () => {
       .send({ streamUrl: 'http://example.com/stream.ts' });
 
     expect(res.status).toBe(200);
+    // Exact match, not >=: the hub's ttlMs must be the 6-hour token lifetime
+    // PLUS the 60s hubGraceMs grace margin from the Finding 1 fix in
+    // stream.ts, so this fails against the original bug (bare 6h ttlMs,
+    // with no margin) and not just against any regression that shortens it.
     expect(setSpy).toHaveBeenCalledWith(
       res.body.token,
       expect.objectContaining({ userId: 1, streamUrl: 'http://example.com/stream.ts' }),
-      expect.any(Number)
+      6 * 60 * 60 * 1000 + 60_000
     );
-    // The ttlMs given to the hub must be at least the 6-hour lifetime stated
-    // in the token's own expiresAt field (a grace margin on top is fine and
-    // expected -- see the Finding 1 fix in stream.ts).
-    const ttlArg = setSpy.mock.calls[0][2] as number;
-    expect(ttlArg).toBeGreaterThanOrEqual(6 * 60 * 60 * 1000);
     setSpy.mockRestore();
   });
 

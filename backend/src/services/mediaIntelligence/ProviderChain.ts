@@ -29,6 +29,7 @@ export class ProviderChain<TRequest, TResult> {
   }
 
   async run(request: TRequest): Promise<TResult> {
+    let hasResult = false;
     let lastResult: TResult | undefined;
     let lastError: unknown;
 
@@ -45,6 +46,7 @@ export class ProviderChain<TRequest, TResult> {
             return result;
           }
           this.injectedLogger.warn(`[ProviderChain] ${provider.name} returned an unsuccessful result, moving to next provider`);
+          hasResult = true;
           lastResult = result;
           break;
         } catch (err) {
@@ -59,7 +61,7 @@ export class ProviderChain<TRequest, TResult> {
       }
     }
 
-    if (lastResult !== undefined) return lastResult;
+    if (hasResult) return lastResult as TResult;
     if (lastError !== undefined) throw lastError instanceof Error ? lastError : new Error(String(lastError));
     throw new Error('ProviderChain: no providers were configured');
   }

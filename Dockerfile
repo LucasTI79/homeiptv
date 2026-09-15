@@ -95,6 +95,7 @@ VOLUME /data
 VOLUME /dvr
 ENV DATA_DIR=/data
 ENV DVR_DIR=/dvr
+ENV PORT=8998
 
 # Run the backend service (which also serves the frontend)
 CMD [ "node", "backend/dist/src/index.js" ]

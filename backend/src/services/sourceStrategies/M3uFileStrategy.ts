@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import type { M3uSource, Settings } from '@homeiptv/shared-types';
 import type { PlaylistSourceStrategy } from './PlaylistSourceStrategy';
-import type { SendStatus } from '../sources';
+import type { SendStatus } from '../httpFetch';
 import { SOURCES_DIR } from '../../config/paths';
 
 export class M3uFileStrategy implements PlaylistSourceStrategy {

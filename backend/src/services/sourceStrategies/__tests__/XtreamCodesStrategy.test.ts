@@ -3,15 +3,15 @@ import fs from 'fs';
 import type { M3uSource, Settings } from '@homeiptv/shared-types';
 
 vi.mock('fs');
-vi.mock('../../sources', async () => {
-  const actual = await vi.importActual<typeof import('../../sources')>('../../sources');
+vi.mock('../../httpFetch', async () => {
+  const actual = await vi.importActual<typeof import('../../httpFetch')>('../../httpFetch');
   return {
     ...actual,
     fetchUrlContent: vi.fn(),
   };
 });
 
-import { fetchUrlContent } from '../../sources';
+import { fetchUrlContent } from '../../httpFetch';
 import { XtreamCodesStrategy } from '../XtreamCodesStrategy';
 
 function buildSource(overrides: Partial<M3uSource> = {}): M3uSource {

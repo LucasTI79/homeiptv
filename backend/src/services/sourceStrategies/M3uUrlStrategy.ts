@@ -2,8 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import type { M3uSource, Settings } from '@homeiptv/shared-types';
 import type { PlaylistSourceStrategy } from './PlaylistSourceStrategy';
-import { fetchUrlContent } from '../sources';
-import type { SendStatus } from '../sources';
+import { fetchUrlContent } from '../httpFetch';
+import type { SendStatus } from '../httpFetch';
 import { RAW_CACHE_DIR } from '../../config/paths';
 
 export class M3uUrlStrategy implements PlaylistSourceStrategy {

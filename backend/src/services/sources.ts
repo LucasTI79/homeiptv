@@ -1,99 +1,11 @@
 import fs from 'fs';
 import path from 'path';
-import http from 'http';
-import https from 'https';
 import type { Channel } from '@homeiptv/shared-types';
 import { refreshVodContent, processM3uVod } from './vodProcessor';
+import { fetchUrlContent, type SendStatus } from './httpFetch';
 
-// Ports fetchUrlContent from server.js:1174-1222 verbatim: follows redirects
-// recursively, supports a 60s timeout, and can return either text or a raw
-// Buffer (asBuffer -- used for binary sources like compressed EPG files).
-export function fetchUrlContent(
-  url: string,
-  options: http.RequestOptions = {},
-  asBuffer = false,
-  maxBytes = 150 * 1024 * 1024 // 150 MB safety limit
-): Promise<string | Buffer> {
-  return new Promise((resolve, reject) => {
-    const protocol = url.startsWith('https') ? https : http;
-    const TIMEOUT_DURATION = 60000;
-    console.log(`[FETCH] Attempting to fetch URL content: ${url} (Timeout: ${TIMEOUT_DURATION / 1000}s)`);
-
-    let isDone = false;
-    const finish = (err?: Error, data?: string | Buffer) => {
-      if (isDone) return;
-      isDone = true;
-      clearTimeout(hardTimer);
-      if (err) reject(err);
-      else resolve(data!);
-    };
-
-    const hardTimer = setTimeout(() => {
-      try { request.destroy(); } catch {}
-      const timeoutError = new Error(`Request to ${url} exceeded hard timeout of ${TIMEOUT_DURATION / 1000} seconds.`);
-      console.error(`[FETCH] ${timeoutError.message}`);
-      finish(timeoutError);
-    }, TIMEOUT_DURATION);
-
-    const request = protocol.get(url, { timeout: TIMEOUT_DURATION, ...options }, (res) => {
-      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        console.log(`[FETCH] Redirecting to: ${res.headers.location}`);
-        try { request.destroy(); } catch {}
-        clearTimeout(hardTimer);
-        return fetchUrlContent(new URL(res.headers.location, url).href, options, asBuffer, maxBytes).then(resolve, reject);
-      }
-      if (res.statusCode !== 200) {
-        console.error(`[FETCH] Failed to fetch ${url}: Status Code ${res.statusCode}`);
-        try { request.destroy(); res.destroy(); } catch {}
-        return finish(new Error(`Failed to fetch: Status Code ${res.statusCode}`));
-      }
-
-      let totalBytes = 0;
-
-      if (asBuffer) {
-        const chunks: Buffer[] = [];
-        res.on('data', (chunk: Buffer) => {
-          totalBytes += chunk.length;
-          if (totalBytes > maxBytes) {
-            try { request.destroy(); res.destroy(); } catch {}
-            return finish(new Error(`Response from ${url} exceeded maximum size limit of ${Math.round(maxBytes / 1024 / 1024)}MB.`));
-          }
-          chunks.push(chunk);
-        });
-        res.on('end', () => {
-          console.log(`[FETCH] Successfully fetched content as buffer from: ${url} (${totalBytes} bytes)`);
-          finish(undefined, Buffer.concat(chunks));
-        });
-      } else {
-        const chunks: Buffer[] = [];
-        res.on('data', (chunk: Buffer) => {
-          totalBytes += chunk.length;
-          if (totalBytes > maxBytes) {
-            try { request.destroy(); res.destroy(); } catch {}
-            return finish(new Error(`Response from ${url} exceeded maximum size limit of ${Math.round(maxBytes / 1024 / 1024)}MB.`));
-          }
-          chunks.push(chunk);
-        });
-        res.on('end', () => {
-          console.log(`[FETCH] Successfully fetched content from: ${url} (${totalBytes} bytes)`);
-          finish(undefined, Buffer.concat(chunks).toString('utf-8'));
-        });
-      }
-    });
-
-    request.on('timeout', () => {
-      try { request.destroy(); } catch {}
-      const timeoutError = new Error(`Request to ${url} socket idle timed out after ${TIMEOUT_DURATION / 1000} seconds.`);
-      console.error(`[FETCH] ${timeoutError.message}`);
-      finish(timeoutError);
-    });
-
-    request.on('error', (err) => {
-      console.error(`[FETCH] Network error fetching ${url}: ${err.message}`);
-      finish(err);
-    });
-  });
-}
+export { fetchUrlContent } from './httpFetch';
+export type { SendStatus } from './httpFetch';
 
 // Ports parseEpgTime from server.js:1226-1244 verbatim: XMLTV timestamps look
 // like "20260901120000 +0000"; falls back to the source's declared UTC offset
@@ -183,8 +95,8 @@ import zlib from 'zlib';
 import type { M3uSource, EpgSource, Settings } from '@homeiptv/shared-types';
 import { getSettings } from './settings';
 import { SOURCES_DIR, LIVE_CHANNELS_M3U_PATH, LIVE_EPG_JSON_PATH } from '../config/paths';
+import { selectPlaylistStrategy } from './sourceStrategies';
 
-export type SendStatus = (message: string, type?: string) => void;
 const noopStatus: SendStatus = () => {};
 
 interface MergedEpgEntry {
@@ -257,19 +169,6 @@ export async function processAndMergeSources(sendStatus: SendStatus = noopStatus
     let liveStreamCount = 0;
 
     try {
-      // This MUST stay a dynamic import, not a static top-of-file one. Statically
-      // importing `selectPlaylistStrategy` here closes a circular dependency at
-      // module-load time: sources.ts -> sourceStrategies/index.ts ->
-      // M3uUrlStrategy.ts/XtreamCodesStrategy.ts -> ../sources (for
-      // fetchUrlContent). That cycle re-enters those two strategies' mocked
-      // `../sources` module mid-initialization in their own test suites
-      // (vi.mock + vi.importActual), so fetchUrlContent stops being properly
-      // stubbed and the tests make real network calls. The real fix is to
-      // extract fetchUrlContent/SendStatus into their own module (e.g.
-      // backend/src/services/httpFetch.ts) that both sides import from instead
-      // of sources.ts, which breaks the cycle for good -- at that point this
-      // can become a normal static import again. Tracked for Phase 5.
-      const { selectPlaylistStrategy } = await import('./sourceStrategies');
       const content = await selectPlaylistStrategy(source.type).fetchContent(source, settings, sendStatus);
 
       // Trigger VOD refresh in background so Live channels load without delay

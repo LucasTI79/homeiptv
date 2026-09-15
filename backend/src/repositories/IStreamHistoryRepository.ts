@@ -2,7 +2,7 @@ export interface CreateStreamHistoryInput {
   userId: number;
   username: string;
   channelId: string | null;
-  channelName: string;
+  channelName: string | null;
   startTime: string;
   status: string;
   clientIp: string;

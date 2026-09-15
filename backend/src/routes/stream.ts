@@ -273,7 +273,7 @@ streamRouter.post('/api/activity/start-redirect', requireAuth, async (req, res) 
 
   try {
     const historyId = await streamHistoryRepository.create({
-      userId, username, channelId: channelId || null, channelName: channelName || '',
+      userId, username, channelId: channelId || null, channelName: channelName || null,
       startTime, status: 'playing', clientIp, channelLogo: channelLogo || null, streamProfileName: 'Redirect',
     });
 

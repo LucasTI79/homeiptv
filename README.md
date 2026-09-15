@@ -44,6 +44,25 @@ O método final empacota tudo (Frontend + Backend) numa imagem Ubuntu limpa já 
    ```
 3. O servidor estará disponível na porta `8998`.
 
+### 4. Desenvolvimento com Docker (hot reload)
+
+Para desenvolver sem instalar Node.js/ffmpeg localmente, use o modo dev do
+Docker Compose. Ele monta o código-fonte como volume, então alterações nos
+arquivos `.ts`/`.tsx` são refletidas automaticamente (backend via `tsx
+watch`, frontend via Vite HMR), sem precisar reconstruir a imagem.
+
+```bash
+npm run docker:dev
+```
+
+O backend fica em `http://localhost:8999` e o frontend (com hot reload) em
+`http://localhost:5173`. Os dados persistentes ainda usam as pastas `./data`
+e `./dvr` do host, como no modo produção.
+
+Este modo usa `Dockerfile.dev`/`docker-compose.dev.yml`, separados do
+`Dockerfile`/`docker-compose.yml` de produção -- nenhum dos dois modos
+interfere no outro.
+
 ---
 
 ## 🏗️ Estrutura do Projeto (Monorepo)

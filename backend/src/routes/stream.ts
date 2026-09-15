@@ -2,8 +2,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { spawn } from 'child_process';
 import { Router } from 'express';
-import { db } from '../db/connection';
-import { insertAndGetId } from '../db/helpers';
+import { streamHistoryRepository } from '../repositories';
 import { requireAuth } from '../middleware/auth';
 import { allowLocalOrAuth } from '../middleware/allowLocalOrAuth';
 import { getSettings } from '../services/settings';
@@ -24,12 +23,6 @@ import {
 // server.js:3446-3854.
 export const streamRouter = Router();
 const streamAuth = allowLocalOrAuth(activeCastTokens);
-
-async function updateStreamHistoryEnd(historyId: number, startTime: string): Promise<void> {
-  const endTime = new Date().toISOString();
-  const duration = Math.round((new Date(endTime).getTime() - new Date(startTime).getTime()) / 1000);
-  await db('stream_history').where({ id: historyId, status: 'playing' }).update({ end_time: endTime, duration_seconds: duration, status: 'stopped' });
-}
 
 streamRouter.route('/stream')
   .get(streamAuth, async (req, res) => {
@@ -121,9 +114,9 @@ streamRouter.route('/stream')
 
   const startTime = new Date().toISOString();
   try {
-    const historyId = await insertAndGetId('stream_history', {
-      user_id: userId, username, channel_id: channelId, channel_name: channelName,
-      start_time: startTime, status: 'playing', client_ip: clientIp, channel_logo: channelLogo, stream_profile_name: streamProfileName,
+    const historyId = await streamHistoryRepository.create({
+      userId, username, channelId, channelName,
+      startTime, status: 'playing', clientIp, channelLogo, streamProfileName,
     });
 
     const newStreamInfo: ActiveStreamInfo = {
@@ -148,7 +141,7 @@ streamRouter.route('/stream')
   const cleanupOnExit = async () => {
     const info = activeStreamProcesses.get(streamKey);
     if (info?.historyId) {
-      await updateStreamHistoryEnd(info.historyId, info.startTime).catch((e) => console.error('[STREAM] Error updating history on exit:', e));
+      await streamHistoryRepository.endPlaying(info.historyId, info.startTime).catch((e) => console.error('[STREAM] Error updating history on exit:', e));
     }
     activeStreamProcesses.delete(streamKey);
     broadcastAdminUpdate();
@@ -258,7 +251,7 @@ streamRouter.post('/api/stream/stop', requireAuth, async (req, res) => {
 
   try {
     if (activeStreamInfo.historyId) {
-      await updateStreamHistoryEnd(activeStreamInfo.historyId, activeStreamInfo.startTime);
+      await streamHistoryRepository.endPlaying(activeStreamInfo.historyId, activeStreamInfo.startTime);
     }
     activeStreamInfo.process.kill('SIGKILL');
     activeStreamProcesses.delete(streamKey);
@@ -279,9 +272,9 @@ streamRouter.post('/api/activity/start-redirect', requireAuth, async (req, res) 
   const startTime = new Date().toISOString();
 
   try {
-    const historyId = await insertAndGetId('stream_history', {
-      user_id: userId, username, channel_id: channelId, channel_name: channelName,
-      start_time: startTime, status: 'playing', client_ip: clientIp, channel_logo: channelLogo, stream_profile_name: 'Redirect',
+    const historyId = await streamHistoryRepository.create({
+      userId, username, channelId: channelId || null, channelName: channelName || '',
+      startTime, status: 'playing', clientIp, channelLogo: channelLogo || null, streamProfileName: 'Redirect',
     });
 
     const streamKey = `${userId}::${historyId}`;
@@ -311,20 +304,14 @@ streamRouter.post('/api/activity/stop-redirect', requireAuth, async (req, res) =
   }
 
   try {
-    const row = await db('stream_history').select('start_time').where({ id: historyId, user_id: req.session.userId }).first();
-    if (!row) {
+    const startTime = await streamHistoryRepository.getStartTime(historyId, req.session.userId as number);
+    if (startTime === undefined) {
       return res.status(200).json({ success: true, message: 'Stream stopped, history record not found.' });
     }
-    await updateStreamHistoryEndUnconditional(historyId, row.start_time);
+    await streamHistoryRepository.endUnconditional(historyId, startTime);
     res.json({ success: true });
   } catch (err) {
     console.error(`[REDIRECT_LOG] Error updating redirect stream end for history ID ${historyId}:`, (err as Error).message);
     res.status(500).json({ error: 'Could not log stream end.' });
   }
 });
-
-async function updateStreamHistoryEndUnconditional(historyId: number, startTime: string): Promise<void> {
-  const endTime = new Date().toISOString();
-  const duration = Math.round((new Date(endTime).getTime() - new Date(startTime).getTime()) / 1000);
-  await db('stream_history').where({ id: historyId }).whereNull('end_time').update({ end_time: endTime, duration_seconds: duration, status: 'stopped' });
-}

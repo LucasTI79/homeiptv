@@ -12,6 +12,8 @@ import { refreshVodContent, processM3uVod } from '../services/vodProcessor';
 import { getLocalMediaIndex } from '../services/localMediaScanner';
 import { parseDurationToSecs } from '../services/vodUtils';
 import { transcriptionQueue } from '../services/transcriptionQueue';
+import { thumbnailService } from '../services/thumbnails/ThumbnailService';
+import { ValidationError, NotFoundError } from '../errors';
 import type { M3uSource } from '@homeiptv/shared-types';
 
 // Ports the four /api/vod/* routes from server.js:2198-2357, 2362-2567,
@@ -35,6 +37,31 @@ function buildProviderMap(providers: M3uSource[]): Map<string, { baseUrl: string
     }
   }
   return providerMap;
+}
+
+function resolveLocalMediaPath(mediaUrl: string): string {
+  let sourceUrl = mediaUrl;
+  if (sourceUrl.includes('/api/local-media/stream')) {
+    try {
+      const parsed = new URL(sourceUrl, 'http://localhost');
+      const mediaId = parsed.searchParams.get('id');
+      const fileParam = parsed.searchParams.get('file');
+      const localIndex = getLocalMediaIndex();
+      let resolvedFile: string | null = null;
+      if (mediaId) {
+        resolvedFile = localIndex.movies.find((m) => m.id === mediaId)?.filePath ||
+          localIndex.episodes.find((e) => e.id === mediaId)?.filePath || null;
+      } else if (fileParam) {
+        resolvedFile = path.resolve(fileParam);
+      }
+      if (resolvedFile && fs.existsSync(resolvedFile)) {
+        sourceUrl = resolvedFile;
+      }
+    } catch (e) {
+      console.warn('[VOD_LOCAL_MEDIA] Could not resolve local media path:', e);
+    }
+  }
+  return sourceUrl;
 }
 
 export { parseDurationToSecs } from '../services/vodUtils';
@@ -555,27 +582,7 @@ vodRouter.post('/vod/transcribe', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Missing targetId or mediaUrl' });
   }
 
-  let sourceUrl = mediaUrl;
-  if (sourceUrl.includes('/api/local-media/stream')) {
-    try {
-      const parsed = new URL(sourceUrl, 'http://localhost');
-      const mediaId = parsed.searchParams.get('id');
-      const fileParam = parsed.searchParams.get('file');
-      const localIndex = getLocalMediaIndex();
-      let resolvedFile: string | null = null;
-      if (mediaId) {
-        resolvedFile = localIndex.movies.find((m) => m.id === mediaId)?.filePath ||
-          localIndex.episodes.find((e) => e.id === mediaId)?.filePath || null;
-      } else if (fileParam) {
-        resolvedFile = path.resolve(fileParam);
-      }
-      if (resolvedFile && fs.existsSync(resolvedFile)) {
-        sourceUrl = resolvedFile;
-      }
-    } catch (e) {
-      console.warn('[VOD_TRANSCRIBE] Could not resolve local media path:', e);
-    }
-  }
+  const sourceUrl = resolveLocalMediaPath(mediaUrl);
 
   try {
     const job = await transcriptionQueue.enqueue(sourceUrl, targetId);
@@ -596,5 +603,26 @@ vodRouter.get('/vod/transcribe/:id/status', requireAuth, (req, res) => {
     } else {
        res.json({ job: null });
     }
+  }
+});
+
+vodRouter.get('/vod/thumbnail/:id', requireAuth, async (req, res, next) => {
+  try {
+    const targetId = req.params.id;
+    const mediaUrl = req.query.mediaUrl as string | undefined;
+    if (!mediaUrl) {
+      throw new ValidationError('mediaUrl query parameter is required');
+    }
+
+    const sourceUrl = resolveLocalMediaPath(mediaUrl);
+    const thumbnailPath = await thumbnailService.getOrCreate(sourceUrl, targetId);
+
+    if (!thumbnailPath) {
+      throw new NotFoundError('Thumbnail not available for this media');
+    }
+
+    res.sendFile(thumbnailPath);
+  } catch (error) {
+    next(error);
   }
 });

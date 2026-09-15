@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "migrate": "knex migrate:latest --knexfile src/db/knexfile.ts",
     "migrate:rollback": "knex migrate:rollback --knexfile src/db/knexfile.ts",
     "migrate:legacy-data": "tsx scripts/migrate-legacy-data.ts"
@@ -57,6 +58,7 @@
     "@types/web-push": "^3.6.4",
     "@types/ws": "^8.18.1",
     "supertest": "^7.0.0",
+    "testcontainers": "^10.28.0",
     "ts-node": "^10.9.2",
     "tsx": "^4.19.1",
     "typescript": "^5.6.3"

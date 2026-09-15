@@ -1,0 +1,35 @@
+# Dev image: installs full dependencies (including devDependencies -- tsx,
+# vite, vitest) and runs the same `npm run dev` script used for non-Docker
+# local development. Source is bind-mounted in by docker-compose.dev.yml
+# for hot reload; this image is never used for the "start" workflow -- see
+# Dockerfile for the multi-stage production build.
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    curl \
+    gnupg \
+    python3-setuptools \
+    ffmpeg && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /usr/src/app
+
+COPY package*.json ./
+COPY frontend/package*.json ./frontend/
+COPY backend/package*.json ./backend/
+COPY shared/types/package*.json ./shared/types/
+
+RUN npm install
+
+# 8999: backend API (tsx watch). 5173: Vite dev server (hot module reload).
+EXPOSE 8999 5173
+
+CMD ["npm", "run", "dev"]

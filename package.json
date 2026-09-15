@@ -8,7 +8,7 @@
     "shared/types"
   ],
   "scripts": {
-    "dev": "npm run dev --workspaces --if-present",
+    "dev": "npm run dev --workspace=@homeiptv/backend & npm run dev --workspace=@homeiptv/frontend & wait",
     "dev:backend": "npm run dev --workspace=@homeiptv/backend",
     "dev:frontend": "npm run dev --workspace=@homeiptv/frontend",
     "build": "npm run build --workspaces --if-present",

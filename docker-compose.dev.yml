@@ -1,0 +1,54 @@
+services:
+  homeiptv-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: homeiptv-dev
+    ports:
+      - "8999:8999"
+      - "5173:5173"
+    volumes:
+      # Bind-mount source only -- node_modules stay in named volumes below
+      # so a native dependency (better-sqlite3) built for this container's
+      # Linux/glibc target is never shadowed by a host-built binary for a
+      # different OS/arch. This is what makes the setup work the same from
+      # a Windows or macOS host, not just Linux.
+      - ./backend/src:/usr/src/app/backend/src
+      - ./backend/package.json:/usr/src/app/backend/package.json
+      - ./backend/tsconfig.json:/usr/src/app/backend/tsconfig.json
+      - ./backend/vitest.config.ts:/usr/src/app/backend/vitest.config.ts
+      - ./frontend/src:/usr/src/app/frontend/src
+      - ./frontend/public:/usr/src/app/frontend/public
+      - ./frontend/index.html:/usr/src/app/frontend/index.html
+      - ./frontend/vite.config.ts:/usr/src/app/frontend/vite.config.ts
+      - ./frontend/tsconfig.json:/usr/src/app/frontend/tsconfig.json
+      - ./frontend/tsconfig.app.json:/usr/src/app/frontend/tsconfig.app.json
+      - ./frontend/tsconfig.node.json:/usr/src/app/frontend/tsconfig.node.json
+      - ./frontend/package.json:/usr/src/app/frontend/package.json
+      - ./shared/types/src:/usr/src/app/shared/types/src
+      - ./shared/types/package.json:/usr/src/app/shared/types/package.json
+      - ./package.json:/usr/src/app/package.json
+      - ./data:/data
+      - ./dvr:/dvr
+      - homeiptv_dev_root_node_modules:/usr/src/app/node_modules
+      - homeiptv_dev_backend_node_modules:/usr/src/app/backend/node_modules
+      - homeiptv_dev_frontend_node_modules:/usr/src/app/frontend/node_modules
+      - homeiptv_dev_shared_node_modules:/usr/src/app/shared/types/node_modules
+    environment:
+      - NODE_ENV=development
+      - DATA_DIR=/data
+      - DVR_DIR=/dvr
+      # Bind-mount filesystem change events don't always propagate reliably
+      # from a Windows/macOS Docker Desktop host into the container (no
+      # native inotify across the mount) -- polling is the standard,
+      # reliable cross-platform workaround both tsx's and Vite's watchers
+      # respect via this env var.
+      - CHOKIDAR_USEPOLLING=true
+    env_file:
+      - ./.env
+
+volumes:
+  homeiptv_dev_root_node_modules:
+  homeiptv_dev_backend_node_modules:
+  homeiptv_dev_frontend_node_modules:
+  homeiptv_dev_shared_node_modules:

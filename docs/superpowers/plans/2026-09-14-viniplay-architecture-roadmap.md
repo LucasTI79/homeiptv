@@ -86,7 +86,7 @@ Each phase's plan must end with:
 - [x] Phase 2: Injectable logger — plan: `2026-09-14-injectable-logger.md` (merged to main)
 - [x] Phase 3: Connection hub generalization — plan: `2026-09-14-connection-hub.md` (merged to main)
 - [x] Phase 4: Playlist source strategy — plan: `2026-09-14-playlist-source-strategy.md` (merged to main)
-- [ ] Phase 5 (partial — httpFetch cleanup + stream_history repository as reference pattern): plan: `2026-09-14-stream-history-repository.md`. Full route/service extraction for proxy.ts/sources.ts routes/vod.ts remains future work, one plan per file.
-- [ ] Phase 6: Subtitle/thumbnail provider chain — plan: `2026-09-14-subtitle-thumbnail-provider-chain.md`
-- [ ] Phase 7: Test infrastructure (testcontainers + supertest) — plan: `2026-09-14-test-infrastructure.md`
+- [x] Phase 5 (partial — httpFetch cleanup + stream_history repository as reference pattern): plan: `2026-09-14-stream-history-repository.md` (merged to main). Full route/service extraction for proxy.ts/sources.ts routes/vod.ts remains future work, one plan per file.
+- [x] Phase 6: Subtitle/thumbnail provider chain — plan: `2026-09-14-subtitle-thumbnail-provider-chain.md` (merged to main)
+- [x] Phase 7: Test infrastructure (testcontainers + supertest) — plan: `2026-09-14-test-infrastructure.md` (merged to main, executed outside SDD workflow)
 - [ ] Phase 8: Docker dev/prod split

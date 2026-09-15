@@ -15,7 +15,8 @@ export const LIVE_EPG_JSON_PATH = path.join(DATA_DIR, 'epg.json');
 export const VOD_MOVIES_JSON_PATH = path.join(DATA_DIR, 'vod_movies.json');
 export const VOD_SERIES_JSON_PATH = path.join(DATA_DIR, 'vod_series.json');
 export const DOWNLOADS_DIR = path.join(DATA_DIR, 'downloads');
+export const THUMBNAILS_DIR = path.join(DATA_DIR, 'thumbnails');
 
-for (const dir of [DATA_DIR, SOURCES_DIR, RAW_CACHE_DIR, LOGS_DIR, DOWNLOADS_DIR]) {
+for (const dir of [DATA_DIR, SOURCES_DIR, RAW_CACHE_DIR, LOGS_DIR, DOWNLOADS_DIR, THUMBNAILS_DIR]) {
   fs.mkdirSync(dir, { recursive: true });
 }

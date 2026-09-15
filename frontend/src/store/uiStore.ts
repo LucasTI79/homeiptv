@@ -39,7 +39,7 @@ export interface SelectedChannel {
 // Placeholder UI-only store (replaces state.js's globals from the old app).
 // Server state (channels, EPG, settings, etc.) belongs in TanStack Query
 // hooks instead, not here.
-interface UiState {
+export interface UiState {
   isMobileNavOpen: boolean;
   setMobileNavOpen: (open: boolean) => void;
   selectedChannel: SelectedChannel | null;

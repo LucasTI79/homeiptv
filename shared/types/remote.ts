@@ -38,6 +38,38 @@ export interface RemoteSession {
   userContext?: RemoteUserContext;
 }
 
+export interface RemoteSeriesEpisode {
+  name: string;
+  url: string;
+  duration?: string | number | null;
+  duration_secs?: number | null;
+}
+
+export interface RemoteSeriesContext {
+  seriesId: string;
+  seriesName: string;
+  season: string;
+  episodeIndex: number;
+  episodes?: RemoteSeriesEpisode[];
+}
+
+export interface RemoteProgressItem {
+  id: string;
+  seriesId?: string;
+  seriesName?: string;
+  season?: string;
+  episodeIndex?: number;
+  episodes?: RemoteSeriesEpisode[];
+  nextEpisode?: { url: string; name: string; season: string; episodeIndex: number; duration?: number | null };
+  title: string;
+  type: 'movie' | 'series';
+  url: string;
+  logo?: string;
+  currentTime: number;
+  duration: number;
+  updatedAt: number;
+}
+
 export interface RemoteUserContext {
   favorites: string[];
   watchedSummary: {
@@ -45,7 +77,7 @@ export interface RemoteUserContext {
     movieIds: string[];
     watchedEpisodeIds?: string[];
   };
-  progress: Record<string, any>;
+  progress: Record<string, RemoteProgressItem>;
   completedDownloads?: string[];
 }
 
@@ -60,7 +92,19 @@ export type RemoteMessage =
   | { type: 'COMMAND_SEEK'; payload: { deltaSeconds?: number; positionSeconds?: number } }
   | { type: 'COMMAND_VOLUME'; payload: { delta?: number; setVolume?: number; toggleMute?: boolean } }
   | { type: 'COMMAND_PLAYBACK_SPEED'; payload: { speed: number } }
-  | { type: 'COMMAND_PLAY_MEDIA'; payload: { id: string; name: string; url: string; logo?: string; isVod?: boolean; seriesContext?: any } }
+  | {
+      type: 'COMMAND_PLAY_MEDIA';
+      payload: {
+        id: string;
+        name: string;
+        url: string;
+        logo?: string;
+        isVod?: boolean;
+        duration?: number | null;
+        currentTime?: number;
+        seriesContext?: RemoteSeriesContext;
+      };
+    }
   | { type: 'COMMAND_SKIP_INTRO' }
   | { type: 'COMMAND_PREV_EPISODE' }
   | { type: 'COMMAND_NEXT_EPISODE' }

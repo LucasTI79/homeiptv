@@ -404,13 +404,26 @@ export function usePlayerShortcuts(
         const { id, name, url, logo, isVod, seriesContext } = msg.payload;
         const current = useUiStore.getState().selectedChannel;
         if (current?.id !== id || current?.url !== url) {
+          const currentEp = seriesContext?.episodes?.[seriesContext.episodeIndex];
+          const epDur =
+            currentEp?.duration_secs ?? (typeof currentEp?.duration === 'number' ? currentEp.duration : undefined);
           useUiStore.getState().setSelectedChannel({
             id,
             name,
             url,
             logo,
             isVod: Boolean(isVod),
-            seriesContext,
+            duration: epDur,
+            initialTime: msg.payload.currentTime ?? 0,
+            seriesContext: seriesContext
+              ? {
+                  seriesId: seriesContext.seriesId,
+                  seriesName: seriesContext.seriesName,
+                  season: seriesContext.season,
+                  episodeIndex: seriesContext.episodeIndex,
+                  episodes: seriesContext.episodes ?? [],
+                }
+              : undefined,
             offlineFileName: current?.offlineFileName,
             isOffline: current?.isOffline,
           });

@@ -106,4 +106,6 @@ export interface Settings {
   sourcesLastUpdated: string | null;
   logs: LogSettings;
   vodPlaybackEngine?: 'native' | 'mpegts';
+  castMediaPort?: number;
+  serverPort?: number;
 }

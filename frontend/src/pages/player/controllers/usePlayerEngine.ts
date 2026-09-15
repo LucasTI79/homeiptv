@@ -37,7 +37,8 @@ export function usePlayerEngine(
   setAudioTracks: (tracks: readonly AudioTrackOption[]) => void,
   setActiveAudioTrack: (track: number) => void,
   setSubtitleTracks: (tracks: readonly SubtitleTrackOption[]) => void,
-  setActiveSubtitleTrack: (track: number | string) => void
+  setActiveSubtitleTrack: (track: number | string) => void,
+  isCasting = false
 ): PlayerEngineController {
   const [loadingStage, setLoadingStage] = useState<PlayerLoadingStage>('idle');
   const [playbackError, setPlaybackError] = useState<PlayerErrorInfo | null>(null);
@@ -154,6 +155,11 @@ export function usePlayerEngine(
   }, [videoRef]);
 
   useEffect(() => {
+    if (isCasting) {
+      setLoadingStage('idle');
+      return;
+    }
+
     if (!selectedChannel || !configSettings) {
       setLoadingStage('idle');
       return;
@@ -501,6 +507,7 @@ export function usePlayerEngine(
     setActiveAudioTrack,
     setSubtitleTracks,
     setActiveSubtitleTrack,
+    isCasting,
   ]);
 
   return {

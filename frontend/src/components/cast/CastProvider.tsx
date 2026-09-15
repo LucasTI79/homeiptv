@@ -25,6 +25,14 @@ export function toCastMediaUrl(streamUrl: string, configuredPort?: number) {
   return streamUrl;
 }
 
+declare global {
+  interface Window {
+    __isCastAvailable?: boolean;
+    __castAvailableListeners?: ((available: boolean) => void)[];
+    chrome?: typeof chrome;
+  }
+}
+
 interface CastContextType {
   isAvailable: boolean;
   isCasting: boolean;
@@ -72,20 +80,19 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const castPlayerRef = useRef<cast.framework.RemotePlayer | null>(null);
   const castControllerRef = useRef<cast.framework.RemotePlayerController | null>(null);
 
-  // Tracking current cast state
-  const currentCastState = useRef({
-    streamUrl: null as string | null,
-    isVod: false,
-    baseUrl: null as string | null,
-    name: null as string | null,
-    logo: null as string | null,
-    seekBase: 0,
-    duration: null as number | null,
-  });
+  const currentCastState = useRef<{
+    streamUrl?: string | null;
+    isVod?: boolean;
+    baseUrl?: string | null;
+    name?: string | null;
+    logo?: string | null;
+    seekBase?: number;
+    duration?: number | null;
+  }>({});
 
   // Keep-alive references to prevent background tab sleep / throttling in Chromium & Edge
   const keepAliveAudioRef = useRef<HTMLAudioElement | null>(null);
-  const wakeLockRef = useRef<any>(null);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   // Maintain active background status while casting so the browser never suspends the tab
   useEffect(() => {
@@ -107,8 +114,8 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // 2. Screen Wake Lock API
       const requestWakeLock = async () => {
         try {
-          if ('wakeLock' in navigator && !wakeLockRef.current) {
-            wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+          if (navigator.wakeLock && !wakeLockRef.current) {
+            wakeLockRef.current = await navigator.wakeLock.request('screen');
             wakeLockRef.current.addEventListener('release', () => {
               wakeLockRef.current = null;
             });
@@ -170,18 +177,18 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     };
 
-    if ((window as any).__isCastAvailable !== undefined) {
-      handleAvailable((window as any).__isCastAvailable);
+    if (window.__isCastAvailable !== undefined) {
+      handleAvailable(window.__isCastAvailable);
     } else if (window.cast?.framework) {
       handleAvailable(true);
     }
 
-    const listeners = ((window as any).__castAvailableListeners = (window as any).__castAvailableListeners || []);
+    const listeners = (window.__castAvailableListeners = window.__castAvailableListeners || []);
     listeners.push(handleAvailable);
 
     const prevCallback = window.__onGCastApiAvailable;
     window.__onGCastApiAvailable = (available: boolean) => {
-      (window as any).__isCastAvailable = available;
+      window.__isCastAvailable = available;
       if (typeof prevCallback === 'function') {
         try { prevCallback(available); } catch {}
       }
@@ -197,11 +204,11 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const initializeCastApi = () => {
-    const castFramework = (window as any).cast?.framework;
+    const castFramework = window.cast?.framework;
     if (!castFramework) return;
 
     const castContext = castFramework.CastContext.getInstance();
-    const chromeCast = (window as any).chrome?.cast;
+    const chromeCast = window.chrome?.cast;
     castContext.setOptions({
       receiverApplicationId: APPLICATION_ID,
       autoJoinPolicy: chromeCast?.AutoJoinPolicy?.ORIGIN_SCOPED || 1,
@@ -265,8 +272,8 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   };
 
-  const handleSessionStateChange = (event: any) => {
-    const castFramework = (window as any).cast?.framework;
+  const handleSessionStateChange = (event: cast.framework.SessionStateEventData) => {
+    const castFramework = window.cast?.framework;
     if (!castFramework) return;
     const castContext = castFramework.CastContext.getInstance();
     const session = castContext.getCurrentSession();
@@ -350,7 +357,7 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
       seekSeconds = 0,
       knownDuration?: number
     ) => {
-      const castContext = (window as any).cast?.framework?.CastContext?.getInstance();
+      const castContext = window.cast?.framework?.CastContext?.getInstance();
       const session = castContext?.getCurrentSession() || castSessionRef.current;
       if (!session) {
         console.warn('Cannot load media: no active Cast session.');
@@ -360,7 +367,7 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const activeCastProfileId = settings?.activeCastProfileId || 'cast-default';
       const userAgentId = settings?.activeUserAgentId || 'default-ua-1724778434000';
-      const castPort = Number((settings as any)?.castMediaPort || (settings as any)?.serverPort || CAST_MEDIA_PORT);
+      const castPort = Number(settings?.castMediaPort || settings?.serverPort || CAST_MEDIA_PORT);
 
       // Check if URL is local backend (/api/..., /stream..., or current hostname)
       const isLocalUrl =
@@ -413,6 +420,10 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const absoluteUrl = toCastMediaUrl(castUrl, castPort);
 
       let durationSeconds: number | null = knownDuration && knownDuration > 0 ? knownDuration : null;
+      setCastCurrentTime(seekSeconds || 0);
+      setCastDuration(durationSeconds || 0);
+      currentCastState.current.duration = durationSeconds || 0;
+
       if (!durationSeconds && isVod && originalUrl) {
         durationSeconds = await probeVodDuration(originalUrl, settings?.activeUserAgentId);
       }
@@ -438,8 +449,7 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
         mediaInfo.duration = durationSeconds;
       }
 
-      const chromeCast = (window as any).chrome?.cast;
-      const metadata = new (chromeCast?.media?.GenericMediaMetadata || chrome.cast.media.GenericMediaMetadata)();
+      const metadata = new chrome.cast.media.GenericMediaMetadata();
       metadata.title = name || 'ViniPlay';
       if (logo) {
         const absoluteLogo = logo.startsWith('http') ? logo : toCastMediaUrl(logo, castPort);

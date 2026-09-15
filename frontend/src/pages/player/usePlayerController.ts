@@ -152,7 +152,8 @@ export function usePlayerController(): PlayerController {
     tracksCtrl.setAudioTracks,
     tracksCtrl.setActiveAudioTrack,
     tracksCtrl.setSubtitleTracks,
-    tracksCtrl.setActiveSubtitleTrack
+    tracksCtrl.setActiveSubtitleTrack,
+    isCasting && isConnected
   );
 
   // Keep hlsHolderRef in sync with engine's hlsRef
@@ -282,7 +283,6 @@ export function usePlayerController(): PlayerController {
       if (lastCastedKeyRef.current === channelKey) {
         return;
       }
-      lastCastedKeyRef.current = channelKey;
 
       if (engineCtrl.playerRef.current) {
         try {
@@ -303,16 +303,26 @@ export function usePlayerController(): PlayerController {
         }
       }
 
-      const initialSeek =
-        videoRef.current && videoRef.current.currentTime > 5 ? Math.floor(videoRef.current.currentTime) : 0;
+      // Only inherit local video playback time if we are transitioning a currently playing local stream to Cast
+      const isTransitioningFromLocal = lastCastedKeyRef.current === null;
+      const initialSeek = isTransitioningFromLocal
+        ? (videoRef.current && videoRef.current.currentTime > 5 ? Math.floor(videoRef.current.currentTime) : (selectedChannel.initialTime ?? 0))
+        : (selectedChannel.initialTime ?? 0);
 
+      if (videoRef.current && !isTransitioningFromLocal) {
+        videoRef.current.currentTime = 0;
+      }
+
+      const channelEp =
+        selectedChannel.seriesContext?.episodes?.[selectedChannel.seriesContext.episodeIndex];
       const knownDur =
-        (vodCtrl.realVodDuration && vodCtrl.realVodDuration > 0 ? vodCtrl.realVodDuration : undefined) ??
         (selectedChannel.duration && selectedChannel.duration > 0 ? selectedChannel.duration : undefined) ??
-        (shortcutsCtrl.duration > 0 ? shortcutsCtrl.duration : undefined);
+        (channelEp?.duration_secs && channelEp.duration_secs > 0 ? channelEp.duration_secs : undefined) ??
+        (typeof channelEp?.duration === 'number' && channelEp.duration > 0 ? channelEp.duration : undefined);
 
       void prepareCastMedia(selectedChannel).then(({ targetUrl }) => {
         if (isCancelled) return;
+        lastCastedKeyRef.current = channelKey;
         loadMedia(
           targetUrl,
           selectedChannel.name,
@@ -328,20 +338,33 @@ export function usePlayerController(): PlayerController {
     return () => {
       isCancelled = true;
     };
-  }, [isCasting, isConnected, selectedChannel, loadMedia, prepareCastMedia, engineCtrl.playerRef, vodCtrl.realVodDuration, shortcutsCtrl.duration]);
+  }, [
+    isCasting,
+    isConnected,
+    selectedChannel?.id,
+    selectedChannel?.url,
+    selectedChannel?.duration,
+    selectedChannel?.initialTime,
+    selectedChannel?.seriesContext,
+    loadMedia,
+    prepareCastMedia,
+  ]);
 
   const requestCastSession = useCallback(async () => {
     if (!isCasting) {
       await requestSession();
     } else if (selectedChannel) {
       const channelKey = `${selectedChannel.id || selectedChannel.url}::${selectedChannel.url}`;
-      lastCastedKeyRef.current = channelKey;
+      const channelEp =
+        selectedChannel.seriesContext?.episodes?.[selectedChannel.seriesContext.episodeIndex];
       const initialSeek =
-        videoRef.current && videoRef.current.currentTime > 5 ? Math.floor(videoRef.current.currentTime) : 0;
+        selectedChannel.initialTime && selectedChannel.initialTime > 0
+          ? Math.floor(selectedChannel.initialTime)
+          : (videoRef.current && videoRef.current.currentTime > 5 ? Math.floor(videoRef.current.currentTime) : 0);
       const knownDur =
-        (vodCtrl.realVodDuration && vodCtrl.realVodDuration > 0 ? vodCtrl.realVodDuration : undefined) ??
         (selectedChannel.duration && selectedChannel.duration > 0 ? selectedChannel.duration : undefined) ??
-        (shortcutsCtrl.duration > 0 ? shortcutsCtrl.duration : undefined);
+        (channelEp?.duration_secs && channelEp.duration_secs > 0 ? channelEp.duration_secs : undefined) ??
+        (typeof channelEp?.duration === 'number' && channelEp.duration > 0 ? channelEp.duration : undefined);
       const { targetUrl } = await prepareCastMedia(selectedChannel);
 
       if (videoRef.current) {
@@ -352,6 +375,7 @@ export function usePlayerController(): PlayerController {
         }
       }
 
+      lastCastedKeyRef.current = channelKey;
       loadMedia(
         targetUrl,
         selectedChannel.name,
@@ -362,7 +386,7 @@ export function usePlayerController(): PlayerController {
         knownDur
       );
     }
-  }, [isCasting, requestSession, selectedChannel, vodCtrl.realVodDuration, shortcutsCtrl.duration, prepareCastMedia, loadMedia]);
+  }, [isCasting, requestSession, selectedChannel, prepareCastMedia, loadMedia]);
 
   const navigateBack = useCallback(() => {
     navigate('/guide');

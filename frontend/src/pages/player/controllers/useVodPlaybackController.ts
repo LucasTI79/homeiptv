@@ -128,11 +128,11 @@ export function useVodPlaybackController(
 
   // Probe real duration for VOD items
   useEffect(() => {
+    const ep = selectedChannel?.seriesContext?.episodes?.[selectedChannel.seriesContext.episodeIndex];
     const knownDuration =
       normalizeDurationSeconds(selectedChannel?.duration) ??
-      normalizeDurationSeconds(
-        selectedChannel?.seriesContext?.episodes?.[selectedChannel.seriesContext.episodeIndex]?.duration
-      );
+      normalizeDurationSeconds(ep?.duration_secs) ??
+      normalizeDurationSeconds(ep?.duration);
 
     if (knownDuration && knownDuration > 0) {
       realVodDurationRef.current = knownDuration;
@@ -141,6 +141,7 @@ export function useVodPlaybackController(
     }
 
     realVodDurationRef.current = null;
+    setDuration(0);
     if (!selectedChannel?.isVod || !selectedChannel?.url) return;
 
     let isMounted = true;
@@ -385,6 +386,18 @@ export function useVodPlaybackController(
       duration: 0,
     });
 
+    const prevEpDuration =
+      normalizeDurationSeconds(prevEp.duration_secs) ??
+      normalizeDurationSeconds(prevEp.duration) ??
+      undefined;
+
+    realVodDurationRef.current = prevEpDuration ?? null;
+    setDuration(prevEpDuration ?? 0);
+    setCurrentTime(0);
+    if (videoRef.current) {
+      videoRef.current.currentTime = 0;
+    }
+
     setNextEpCountdown(null);
     setNextEpDismissed(false);
     hasCheckedResumeRef.current = false;
@@ -397,13 +410,15 @@ export function useVodPlaybackController(
       vodType: 'series',
       logo: selectedChannel.logo,
       originalUrl: prevEp.url,
+      duration: prevEpDuration,
+      initialTime: 0,
       seriesContext: {
         ...seriesContext,
         episodeIndex: prevIdx,
       },
       nextEpisode: nextForPrev,
     });
-  }, [selectedChannel, setSelectedChannel, saveProgress]);
+  }, [selectedChannel, setSelectedChannel, saveProgress, normalizeDurationSeconds, setDuration, setCurrentTime, videoRef]);
 
   const handlePlayNextEpisode = useCallback(() => {
     if (!selectedChannel) return;
@@ -481,6 +496,19 @@ export function useVodPlaybackController(
       duration: 0,
     });
 
+    const nextEpObj = seriesContext?.episodes?.[next.episodeIndex];
+    const nextEpDuration =
+      normalizeDurationSeconds(nextEpObj?.duration_secs) ??
+      normalizeDurationSeconds(nextEpObj?.duration) ??
+      undefined;
+
+    realVodDurationRef.current = nextEpDuration ?? null;
+    setDuration(nextEpDuration ?? 0);
+    setCurrentTime(0);
+    if (videoRef.current) {
+      videoRef.current.currentTime = 0;
+    }
+
     setNextEpCountdown(null);
     setNextEpDismissed(false);
     hasCheckedResumeRef.current = false;
@@ -493,6 +521,8 @@ export function useVodPlaybackController(
       vodType: 'series',
       logo: selectedChannel.logo,
       originalUrl: next.url,
+      duration: nextEpDuration,
+      initialTime: 0,
       seriesContext: seriesContext
         ? {
             ...seriesContext,
@@ -502,7 +532,18 @@ export function useVodPlaybackController(
         : undefined,
       nextEpisode: subsequentEpisode,
     });
-  }, [selectedChannel, setSelectedChannel, saveProgress, markEpisodeWatched, removeProgress, getProgressItemId]);
+  }, [
+    selectedChannel,
+    setSelectedChannel,
+    saveProgress,
+    markEpisodeWatched,
+    removeProgress,
+    getProgressItemId,
+    normalizeDurationSeconds,
+    setDuration,
+    setCurrentTime,
+    videoRef,
+  ]);
 
   // Countdown ticker
   useEffect(() => {
@@ -526,15 +567,20 @@ export function useVodPlaybackController(
     setResumePrompt(null);
     setNextEpCountdown(null);
     setNextEpDismissed(false);
-  }, [selectedChannel?.url]);
+    realVodDurationRef.current = null;
+    setCurrentTime(0);
+    if (videoRef.current) {
+      videoRef.current.currentTime = 0;
+    }
+  }, [selectedChannel?.url, setCurrentTime, videoRef]);
 
   const handleLoadedMetadata = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
     const isLocal = selectedChannel?.url?.startsWith('/api/local-media');
+    const ep = selectedChannel?.seriesContext?.episodes?.[selectedChannel.seriesContext.episodeIndex];
     const knownChannelDur =
       normalizeDurationSeconds(selectedChannel?.duration) ??
-      normalizeDurationSeconds(
-        selectedChannel?.seriesContext?.episodes?.[selectedChannel.seriesContext.episodeIndex]?.duration
-      );
+      normalizeDurationSeconds(ep?.duration_secs) ??
+      normalizeDurationSeconds(ep?.duration);
 
     let dur = realVodDurationRef.current ?? knownChannelDur ?? 0;
 

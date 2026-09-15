@@ -2,15 +2,21 @@ import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import { PlayerPage } from '../../pages/PlayerPage';
 import { renderWithProviders } from '../renderWithProviders';
+import type { UiState } from '../../store/uiStore';
+
+const createMockUiStore = (overrides?: Partial<UiState>): UiState => ({
+  isMobileNavOpen: false,
+  setMobileNavOpen: vi.fn(),
+  selectedChannel: { id: 'test', name: 'Test Channel', url: 'http://example.com/stream.m3u8' },
+  setSelectedChannel: vi.fn(),
+  appName: 'ViniPlay',
+  setAppName: vi.fn(),
+  ...overrides,
+});
 
 // Mock the Zustand store and TanStack Query config
 vi.mock('../../store/uiStore', () => ({
-  useUiStore: vi.fn((selector) => {
-    const store = {
-      selectedChannel: { id: 'test', name: 'Test Channel', url: 'http://example.com/stream.m3u8' },
-    };
-    return selector(store);
-  }),
+  useUiStore: vi.fn((selector) => selector(createMockUiStore())),
 }));
 
 vi.mock('../../api/guide', () => ({
@@ -57,18 +63,19 @@ describe('PlayerPage', () => {
 
   it('renders the offline badge when playing from local storage', async () => {
     const { useUiStore } = await import('../../store/uiStore');
-    vi.mocked(useUiStore).mockImplementation((selector: any) => {
-      const store = {
-        selectedChannel: {
-          id: 'movie_123',
-          name: 'Downloaded Movie',
-          url: 'http://example.com/movie.mp4',
-          isVod: true,
-          offlineFileName: 'movie_123.mp4',
-        },
-      };
-      return selector(store);
-    });
+    vi.mocked(useUiStore).mockImplementation((selector) =>
+      selector(
+        createMockUiStore({
+          selectedChannel: {
+            id: 'movie_123',
+            name: 'Downloaded Movie',
+            url: 'http://example.com/movie.mp4',
+            isVod: true,
+            offlineFileName: 'movie_123.mp4',
+          },
+        })
+      )
+    );
 
     const opfs = await import('../../services/opfsStorage');
     vi.spyOn(opfs, 'getDownloadedFile').mockResolvedValue(new File(['video-content'], 'movie_123.mp4', { type: 'video/mp4' }));
@@ -81,17 +88,18 @@ describe('PlayerPage', () => {
 
   it('renders playback speed button and adjusts speed when preset is clicked', async () => {
     const { useUiStore } = await import('../../store/uiStore');
-    vi.mocked(useUiStore).mockImplementation((selector: any) => {
-      const store = {
-        selectedChannel: {
-          id: 'test_vid',
-          name: 'Speed Test Video',
-          url: 'http://example.com/vid.mp4',
-          isVod: true,
-        },
-      };
-      return selector(store);
-    });
+    vi.mocked(useUiStore).mockImplementation((selector) =>
+      selector(
+        createMockUiStore({
+          selectedChannel: {
+            id: 'test_vid',
+            name: 'Speed Test Video',
+            url: 'http://example.com/vid.mp4',
+            isVod: true,
+          },
+        })
+      )
+    );
 
     const { fireEvent } = await import('@testing-library/react');
     renderWithProviders(<PlayerPage />);
@@ -129,35 +137,36 @@ describe('PlayerPage', () => {
     const { useUiStore } = await import('../../store/uiStore');
     const setSelectedChannelSpy = vi.fn();
 
-    vi.mocked(useUiStore).mockImplementation((selector: any) => {
-      const store = {
-        selectedChannel: {
-          id: 'series_1_s1_e0',
-          name: 'My Series - Ep 1',
-          url: 'http://example.com/ep1.mp4',
-          isVod: true,
-          vodType: 'series',
-          seriesContext: {
-            seriesId: 'series_1',
-            seriesName: 'My Series',
-            season: '1',
-            episodeIndex: 0,
-            episodes: [
-              { name: 'Ep 1', url: 'http://example.com/ep1.mp4' },
-              { name: 'Ep 2', url: 'http://example.com/ep2.mp4' },
-            ],
+    vi.mocked(useUiStore).mockImplementation((selector) =>
+      selector(
+        createMockUiStore({
+          selectedChannel: {
+            id: 'series_1_s1_e0',
+            name: 'My Series - Ep 1',
+            url: 'http://example.com/ep1.mp4',
+            isVod: true,
+            vodType: 'series',
+            seriesContext: {
+              seriesId: 'series_1',
+              seriesName: 'My Series',
+              season: '1',
+              episodeIndex: 0,
+              episodes: [
+                { name: 'Ep 1', url: 'http://example.com/ep1.mp4' },
+                { name: 'Ep 2', url: 'http://example.com/ep2.mp4' },
+              ],
+            },
+            nextEpisode: {
+              url: 'http://example.com/ep2.mp4',
+              name: 'My Series - Ep 2',
+              season: '1',
+              episodeIndex: 1,
+            },
           },
-          nextEpisode: {
-            url: 'http://example.com/ep2.mp4',
-            name: 'My Series - Ep 2',
-            season: '1',
-            episodeIndex: 1,
-          },
-        },
-        setSelectedChannel: setSelectedChannelSpy,
-      };
-      return selector(store);
-    });
+          setSelectedChannel: setSelectedChannelSpy,
+        })
+      )
+    );
 
     const { fireEvent } = await import('@testing-library/react');
     renderWithProviders(<PlayerPage />);
@@ -192,6 +201,15 @@ describe('PlayerPage', () => {
         currentTime: 0,
       })
     );
+
+    // Verify setSelectedChannel was called with initialTime: 0
+    expect(setSelectedChannelSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'series_1_s1_e1',
+        url: 'http://example.com/ep2.mp4',
+        initialTime: 0,
+      })
+    );
   });
 
   it('does not advance to next episode on premature ended event when duration is not near completion', async () => {
@@ -204,36 +222,37 @@ describe('PlayerPage', () => {
       markEpisodeWatched: markEpisodeWatchedSpy,
     });
 
-    vi.mocked(useUiStore).mockImplementation((selector: any) => {
-      const store = {
-        selectedChannel: {
-          id: 'series_1_s1_e0',
-          name: 'My Series - Ep 1',
-          url: 'http://example.com/ep1.mp4',
-          isVod: true,
-          duration: 2700,
-          seriesContext: {
-            seriesId: 'series_1',
-            seriesName: 'My Series',
-            season: '1',
-            episodeIndex: 0,
-            episodes: [
-              { name: 'Ep 1', url: 'http://example.com/ep1.mp4', duration: 2700 },
-              { name: 'Ep 2', url: 'http://example.com/ep2.mp4', duration: 2700 },
-            ],
-          },
-          nextEpisode: {
-            url: 'http://example.com/ep2.mp4',
-            name: 'My Series - Ep 2',
-            season: '1',
-            episodeIndex: 1,
+    vi.mocked(useUiStore).mockImplementation((selector) =>
+      selector(
+        createMockUiStore({
+          selectedChannel: {
+            id: 'series_1_s1_e0',
+            name: 'My Series - Ep 1',
+            url: 'http://example.com/ep1.mp4',
+            isVod: true,
             duration: 2700,
+            seriesContext: {
+              seriesId: 'series_1',
+              seriesName: 'My Series',
+              season: '1',
+              episodeIndex: 0,
+              episodes: [
+                { name: 'Ep 1', url: 'http://example.com/ep1.mp4', duration: 2700 },
+                { name: 'Ep 2', url: 'http://example.com/ep2.mp4', duration: 2700 },
+              ],
+            },
+            nextEpisode: {
+              url: 'http://example.com/ep2.mp4',
+              name: 'My Series - Ep 2',
+              season: '1',
+              episodeIndex: 1,
+              duration: 2700,
+            },
           },
-        },
-        setSelectedChannel: setSelectedChannelSpy,
-      };
-      return selector(store);
-    });
+          setSelectedChannel: setSelectedChannelSpy,
+        })
+      )
+    );
 
     const { fireEvent } = await import('@testing-library/react');
     renderWithProviders(<PlayerPage />);
@@ -248,6 +267,53 @@ describe('PlayerPage', () => {
 
     expect(markEpisodeWatchedSpy).not.toHaveBeenCalled();
     expect(setSelectedChannelSpy).not.toHaveBeenCalled();
+  });
+
+  it('resets currentTime to 0 and selects previous episode when Previous Episode is clicked', async () => {
+    const { useUiStore } = await import('../../store/uiStore');
+    const setSelectedChannelSpy = vi.fn();
+
+    vi.mocked(useUiStore).mockImplementation((selector) =>
+      selector(
+        createMockUiStore({
+          selectedChannel: {
+            id: 'series_1_s1_e1',
+            name: 'My Series - Ep 2',
+            url: 'http://example.com/ep2.mp4',
+            isVod: true,
+            vodType: 'series',
+            seriesContext: {
+              seriesId: 'series_1',
+              seriesName: 'My Series',
+              season: '1',
+              episodeIndex: 1,
+              episodes: [
+                { name: 'Ep 1', url: 'http://example.com/ep1.mp4', duration_secs: 2400 },
+                { name: 'Ep 2', url: 'http://example.com/ep2.mp4', duration_secs: 2600 },
+              ],
+            },
+          },
+          setSelectedChannel: setSelectedChannelSpy,
+        })
+      )
+    );
+
+    const { fireEvent } = await import('@testing-library/react');
+    renderWithProviders(<PlayerPage />);
+
+    const prevEpBtn = screen.getByTitle('Episódio anterior');
+    expect(prevEpBtn).toBeInTheDocument();
+
+    fireEvent.click(prevEpBtn);
+
+    expect(setSelectedChannelSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'series_1_s1_e0',
+        url: 'http://example.com/ep1.mp4',
+        duration: 2400,
+        initialTime: 0,
+      })
+    );
   });
 });
 

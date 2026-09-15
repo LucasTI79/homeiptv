@@ -182,10 +182,18 @@ export const useRemoteStore = create<RemoteStoreState>((set, get) => {
               url,
               logo,
               isVod: !!isVod,
-              seriesContext,
+              seriesContext: seriesContext
+                ? {
+                    seriesId: seriesContext.seriesId,
+                    seriesName: seriesContext.seriesName,
+                    season: seriesContext.season,
+                    episodeIndex: seriesContext.episodeIndex,
+                    episodes: seriesContext.episodes ?? [],
+                  }
+                : undefined,
               offlineFileName: matchingTask?.fileName,
               isOffline: !!matchingTask,
-            } as any);
+            });
 
             if (hostNavigateCallback) {
               hostNavigateCallback('/player');

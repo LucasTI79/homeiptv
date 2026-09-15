@@ -1,3 +1,5 @@
+name: homeiptv-dev
+
 services:
   homeiptv-dev:
     build:
@@ -25,8 +27,7 @@ services:
       - ./frontend/tsconfig.app.json:/usr/src/app/frontend/tsconfig.app.json
       - ./frontend/tsconfig.node.json:/usr/src/app/frontend/tsconfig.node.json
       - ./frontend/package.json:/usr/src/app/frontend/package.json
-      - ./shared/types/src:/usr/src/app/shared/types/src
-      - ./shared/types/package.json:/usr/src/app/shared/types/package.json
+      - ./shared/types:/usr/src/app/shared/types
       - ./package.json:/usr/src/app/package.json
       - ./data:/data
       - ./dvr:/dvr

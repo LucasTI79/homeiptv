@@ -40,7 +40,7 @@ O método final empacota tudo (Frontend + Backend) numa imagem Ubuntu limpa já 
 1. Crie seu `docker-compose.yml` e a pasta de volume `data`.
 2. Rode o comando:
    ```bash
-   docker-compose --profile container up -d --build
+   docker compose --profile container up -d --build
    ```
 3. O servidor estará disponível na porta `8998`.
 

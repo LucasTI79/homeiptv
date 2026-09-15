@@ -32,4 +32,7 @@ RUN npm install
 # 8999: backend API (tsx watch). 5173: Vite dev server (hot module reload).
 EXPOSE 8999 5173
 
+# Runs the root "dev" script, which must launch both workspaces in parallel
+# (see package.json's "dev" script) -- if that script ever stops running
+# both workspaces together, this image silently loses hot reload for one of them.
 CMD ["npm", "run", "dev"]

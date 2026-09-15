@@ -22,7 +22,7 @@ WORKDIR /usr/src/app
 COPY package*.json ./
 COPY frontend/package*.json ./frontend/
 COPY backend/package*.json ./backend/
-COPY shared/package*.json ./shared/
+COPY shared/types/package*.json ./shared/types/
 
 # Install all dependencies (including devDependencies for building)
 RUN npm install
@@ -30,11 +30,11 @@ RUN npm install
 # Copy source code
 COPY frontend ./frontend
 COPY backend ./backend
-COPY shared ./shared
+COPY shared/types ./shared/types
 
 # Build Frontend and Backend
-RUN npm run build -w @viniplay/frontend
-RUN npm run build -w @viniplay/backend
+RUN npm run build -w @homeiptv/frontend
+RUN npm run build -w @homeiptv/backend
 
 # Prune devDependencies to shrink node_modules
 RUN npm prune --omit=dev
@@ -75,16 +75,17 @@ WORKDIR /usr/src/app
 # Copy configuration and production dependencies
 COPY package*.json ./
 COPY --from=builder /usr/src/app/node_modules ./node_modules
+COPY --from=builder /usr/src/app/backend/node_modules ./backend/node_modules
 
 # Copy workspace package.json files
 COPY frontend/package*.json ./frontend/
 COPY backend/package*.json ./backend/
-COPY shared/package*.json ./shared/
+COPY shared/types/package*.json ./shared/types/
 
 # Copy built assets
 COPY --from=builder /usr/src/app/frontend/dist ./frontend/dist
 COPY --from=builder /usr/src/app/backend/dist ./backend/dist
-COPY --from=builder /usr/src/app/shared ./shared
+COPY --from=builder /usr/src/app/shared/types ./shared/types
 
 EXPOSE 8998
 

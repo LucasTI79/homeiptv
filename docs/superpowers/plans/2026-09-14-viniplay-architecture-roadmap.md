@@ -89,4 +89,4 @@ Each phase's plan must end with:
 - [x] Phase 5 (partial — httpFetch cleanup + stream_history repository as reference pattern): plan: `2026-09-14-stream-history-repository.md` (merged to main). Full route/service extraction for proxy.ts/sources.ts routes/vod.ts remains future work, one plan per file.
 - [x] Phase 6: Subtitle/thumbnail provider chain — plan: `2026-09-14-subtitle-thumbnail-provider-chain.md` (merged to main)
 - [x] Phase 7: Test infrastructure (testcontainers + supertest) — plan: `2026-09-14-test-infrastructure.md` (merged to main, executed outside SDD workflow)
-- [ ] Phase 8: Docker dev/prod split — plan: `2026-09-15-docker-dev-prod-split.md`
+- [x] Phase 8: Docker dev/prod split — plan: `2026-09-15-docker-dev-prod-split.md` (merged to main)

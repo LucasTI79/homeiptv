@@ -613,6 +613,9 @@ vodRouter.get('/vod/thumbnail/:id', requireAuth, async (req, res, next) => {
     if (!mediaUrl) {
       throw new ValidationError('mediaUrl query parameter is required');
     }
+    if (!/^[A-Za-z0-9._-]+$/.test(targetId)) {
+      throw new ValidationError('Invalid targetId');
+    }
 
     const sourceUrl = resolveLocalMediaPath(mediaUrl);
     const thumbnailPath = await thumbnailService.getOrCreate(sourceUrl, targetId);

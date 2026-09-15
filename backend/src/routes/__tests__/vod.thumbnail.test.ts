@@ -44,4 +44,14 @@ describe('GET /api/vod/thumbnail/:id', () => {
     await request(buildApp()).get('/api/vod/thumbnail/abc123').query({ mediaUrl: 'http://example.com/video.mp4' });
     expect(getOrCreateMock).toHaveBeenCalledWith('http://example.com/video.mp4', 'abc123');
   });
+
+  it('returns 400 with the standard error shape when targetId contains path traversal characters', async () => {
+    getOrCreateMock.mockClear();
+    const res = await request(buildApp())
+      .get('/api/vod/thumbnail/..%2F..%2Fetc%2Fpasswd')
+      .query({ mediaUrl: 'http://example.com/video.mp4' });
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: { code: 'VALIDATION_ERROR', message: 'Invalid targetId' } });
+    expect(getOrCreateMock).not.toHaveBeenCalled();
+  });
 });

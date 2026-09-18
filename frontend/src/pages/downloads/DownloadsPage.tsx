@@ -17,7 +17,9 @@ import {
   FiAlertCircle,
   FiRefreshCw,
   FiCheck,
+  FiSave,
 } from 'react-icons/fi';
+import { exportDownloadedFile } from '../../services/opfsStorage';
 
 function formatBytes(bytes: number): string {
   if (!bytes || bytes <= 0) return '0 B';
@@ -184,6 +186,21 @@ export function DownloadsPage() {
       offlineFileName: task.fileName,
     });
     navigate('/player');
+  };
+
+  const handleExport = async (task: DownloadTask) => {
+    try {
+      const suggestedName = `${task.title.replace(/[^a-zA-Z0-9-_. ]/g, '')}.mp4`;
+      const toastId = toast.loading(`Preparando exportação de ${task.title}...`);
+      const success = await exportDownloadedFile(task.fileName, suggestedName);
+      toast.dismiss(toastId);
+      if (success) {
+        toast.success(`${task.title} salvo com sucesso no seu computador!`);
+      }
+    } catch (err) {
+      toast.error(`Falha ao exportar ${task.title}.`);
+      console.error(err);
+    }
   };
 
   const usedPct =
@@ -400,9 +417,18 @@ export function DownloadsPage() {
                               <FiPlay className="w-3 h-3" />
                               <span>{isMovieWatched(movie.id) ? 'Reassistir' : 'Assistir'}</span>
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => cancelDownload(movie.id)}
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleExport(movie)}
+                                className="p-1 rounded transition text-gray-400 hover:text-blue-400"
+                                title="Salvar arquivo .mp4 no computador"
+                              >
+                                <FiSave className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => cancelDownload(movie.id)}
                               className={`p-1 rounded transition ${
                                 isMovieWatched(movie.id)
                                   ? 'text-rose-400 hover:text-rose-300 hover:bg-rose-500/20'
@@ -412,6 +438,7 @@ export function DownloadsPage() {
                             >
                               <FiTrash2 className="w-3.5 h-3.5" />
                             </button>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -526,6 +553,14 @@ export function DownloadsPage() {
                                       title={isEpWatched ? 'Reassistir episódio' : 'Reproduzir episódio'}
                                     >
                                       <FiPlay className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleExport(ep)}
+                                      className="p-2 bg-gray-800 hover:bg-blue-500/20 text-gray-400 hover:text-blue-400 rounded-lg transition border border-gray-700"
+                                      title="Salvar episódio no computador"
+                                    >
+                                      <FiSave className="w-3.5 h-3.5" />
                                     </button>
                                     <button
                                       type="button"

@@ -88,3 +88,46 @@ export async function deleteDownloadedFile(fileName: string): Promise<boolean> {
     return false;
   }
 }
+
+export async function exportDownloadedFile(fileName: string, suggestedName: string): Promise<boolean> {
+  try {
+    const file = await getDownloadedFile(fileName);
+    if (!file) {
+      throw new Error('Arquivo não encontrado no armazenamento offline.');
+    }
+
+    // Use File System Access API if available for a better native experience
+    if ('showSaveFilePicker' in window) {
+      const handle = await (window as any).showSaveFilePicker({
+        suggestedName,
+        types: [{
+          description: 'Arquivo de Vídeo',
+          accept: { 'video/mp4': ['.mp4', '.mkv', '.avi'] },
+        }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(file);
+      await writable.close();
+      return true;
+    }
+
+    // Fallback for browsers that don't support showSaveFilePicker (e.g., Firefox, Safari)
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = suggestedName;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 100);
+    return true;
+  } catch (err) {
+    if ((err as { name?: string }).name === 'AbortError') {
+      return false; // User cancelled the save dialog
+    }
+    console.error('[OPFS] Erro ao exportar arquivo:', err);
+    throw err;
+  }
+}

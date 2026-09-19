@@ -562,7 +562,7 @@ vodRouter.get('/vod/duration', allowLocalOrAuth(), (req, res) => {
     responded = true;
     clearTimeout(timeout);
     console.error(`[VOD_DURATION] ffprobe spawn error: ${err.message}`);
-    res.status(500).json({ error: 'ffprobe failed to start' });
+    res.status(200).json({ duration: null, error: 'ffprobe unavailable' });
   });
 });
 

@@ -88,3 +88,82 @@ export function useCancelDvrJob() {
   });
 }
 
+export function useStopDvrJob() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => apiFetch<{ success: true }>(`/api/dvr/jobs/${id}/stop`, { method: 'POST' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dvr', 'jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['dvr', 'recordings'] });
+    },
+  });
+}
+
+export function useDeleteDvrHistory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => apiFetch<{ success: true }>(`/api/dvr/jobs/${id}/history`, { method: 'DELETE' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['dvr', 'jobs'] }),
+  });
+}
+
+export function useEditDvrJob() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, startTime, endTime }: { id: number; startTime: string; endTime: string }) =>
+      apiFetch<{ success: true; job: DvrJob }>(`/api/dvr/jobs/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ startTime, endTime }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['dvr', 'jobs'] }),
+  });
+}
+
+export function useDeleteDvrRecording() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number | string) => apiFetch<{ success: true }>(`/api/dvr/recordings/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dvr', 'recordings'] });
+      queryClient.invalidateQueries({ queryKey: ['dvr', 'storage'] });
+    },
+  });
+}
+
+export function useClearAllDvrJobs() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<{ success: true; deletedCount: number }>('/api/dvr/jobs/all', { method: 'DELETE' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['dvr', 'jobs'] }),
+  });
+}
+
+export function useClearAllDvrRecordings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<{ success: true; deletedCount: number }>('/api/dvr/recordings/all', { method: 'DELETE' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dvr', 'recordings'] });
+      queryClient.invalidateQueries({ queryKey: ['dvr', 'storage'] });
+    },
+  });
+}
+
+export interface ScheduleManualDvrBody {
+  channelId: string;
+  channelName: string;
+  startTime: string;
+  endTime: string;
+}
+
+export function useScheduleManualDvrJob() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ScheduleManualDvrBody) =>
+      apiFetch<{ success: true; job: DvrJob }>('/api/dvr/schedule/manual', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['dvr', 'jobs'] }),
+  });
+}

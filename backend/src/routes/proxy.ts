@@ -217,6 +217,14 @@ proxyRouter.all('/media-proxy', mediaProxyAuth, (req, res) => {
       } catch {}
       currentProxyReq = null;
     }
+
+    try {
+      if (!res.headersSent) {
+        res.status(502).end();
+      } else if (!res.writableEnded) {
+        res.destroy();
+      }
+    } catch {}
   };
 
   req.on('close', cleanup);

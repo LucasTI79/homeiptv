@@ -15,6 +15,21 @@ import { activeCastTokens } from '../state/streamState';
 
 export const proxyRouter = Router();
 
+function redactUrlForLog(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    url.username = '';
+    url.password = '';
+    url.hash = '';
+    for (const key of url.searchParams.keys()) {
+      url.searchParams.set(key, '[REDACTED]');
+    }
+    return url.toString();
+  } catch {
+    return '[invalid URL]';
+  }
+}
+
 function isForbiddenIp(ip: string): boolean {
   if (net.isIPv4(ip)) {
     const o = ip.split('.').map(Number);
@@ -365,14 +380,14 @@ proxyRouter.all('/media-proxy', mediaProxyAuth, (req, res) => {
 
     proxyReq.on('timeout', () => {
       if (!isClosed) {
-        console.warn(`[MEDIA_PROXY] Upstream timeout for ${urlStr}`);
+        console.warn(`[MEDIA_PROXY] Upstream timeout for ${redactUrlForLog(urlStr)}`);
         proxyReq.destroy(new Error('Upstream IPTV connection timeout'));
       }
     });
 
     proxyReq.on('error', (err) => {
       if (!isClosed) {
-        console.error(`[MEDIA_PROXY] Request error for ${urlStr}:`, err.message);
+        console.error(`[MEDIA_PROXY] Request error for ${redactUrlForLog(urlStr)}:`, err.message);
         if (!res.headersSent) {
           res.status(502).send('Error connecting to upstream IPTV media server');
         }

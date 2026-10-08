@@ -207,6 +207,12 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const castFramework = window.cast?.framework;
     if (!castFramework) return;
 
+    try {
+      castFramework.setLoggerLevel(castFramework.LoggerLevel.DEBUG);
+    } catch (err) {
+      console.warn('[CAST] Could not enable framework logger:', err);
+    }
+
     const castContext = castFramework.CastContext.getInstance();
     const chromeCast = window.chrome?.cast;
     castContext.setOptions({

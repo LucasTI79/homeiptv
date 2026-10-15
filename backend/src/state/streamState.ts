@@ -58,7 +58,19 @@ export function updateActiveStream(
   return updated;
 }
 
-export const STREAM_INACTIVITY_TIMEOUT = 60000; // 60 seconds tolerance for network buffering & Cast
+import { getSettings } from '../services/settings';
+
+export const STREAM_INACTIVITY_TIMEOUT = 60000; // Minimum floor tolerance for network buffering & Cast
+
+export function getStreamInactivityTimeoutMs(): number {
+  try {
+    const settings = getSettings();
+    const seconds = settings.streamInactivityTimeoutSeconds ?? 900;
+    return Math.max(60, seconds) * 1000;
+  } catch {
+    return 900_000;
+  }
+}
 
 // Wired up by the admin/SSE domain (task #16) once it lands; a no-op until
 // then so streaming/DVR code can call it unconditionally, same seam pattern
@@ -70,10 +82,11 @@ export function setBroadcastAdminUpdate(fn: () => void): void {
 
 export function cleanupInactiveStreams(): void {
   const now = Date.now();
-  console.log(`[JANITOR] Running cleanup for inactive streams. Current active processes: ${activeStreamProcesses.size}`);
+  const timeoutMs = getStreamInactivityTimeoutMs();
+  console.log(`[JANITOR] Running cleanup for inactive streams (timeout: ${timeoutMs / 1000}s). Current active processes: ${activeStreamProcesses.size}`);
 
   activeStreamProcesses.forEach((streamInfo, streamKey) => {
-    if (streamInfo.references <= 0 && now - streamInfo.lastAccess > STREAM_INACTIVITY_TIMEOUT) {
+    if (streamInfo.references <= 0 && now - streamInfo.lastAccess > timeoutMs) {
       console.log(`[JANITOR] Found stale stream process for key: ${streamKey}. Terminating PID: ${streamInfo.process.pid}.`);
       try {
         if (streamInfo.historyId) {

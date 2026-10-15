@@ -214,6 +214,21 @@ streamRouter.post('/api/cast/generate-token', requireAuth, async (req, res, next
   }
 });
 
+streamRouter.post('/api/stream/keep-alive', allowLocalOrAuth(activeCastTokens), async (req, res) => {
+  const { streamKey, streamUrl } = req.body as { streamKey?: string; streamUrl?: string };
+  const now = Date.now();
+
+  let touched = false;
+  activeStreamProcesses.forEach((info, key) => {
+    if ((streamKey && key === streamKey) || (streamUrl && key.includes(streamUrl))) {
+      info.lastAccess = now;
+      touched = true;
+    }
+  });
+
+  res.json({ success: true, touched, timestamp: now });
+});
+
 streamRouter.post('/api/stream/stop', requireAuth, async (req, res) => {
   const { url: streamUrl, profileId } = req.body as { url?: string; profileId?: string };
   let streamKey: string;

@@ -293,7 +293,7 @@ proxyRouter.all('/media-proxy', mediaProxyAuth, (req, res) => {
         method: req.method === 'HEAD' ? 'HEAD' : 'GET',
         headers,
         agent: isHttps ? proxyHttpsAgent : proxyHttpAgent,
-        timeout: 30000,
+        timeout: 60000,
       },
       (upstreamRes) => {
         if (isClosed) {

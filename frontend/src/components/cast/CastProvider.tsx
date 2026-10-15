@@ -131,7 +131,20 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
       document.addEventListener('visibilitychange', handleVisibilityChange);
 
+      // 3. Periodic Keep-Alive heartbeat to backend for active Cast stream
+      const heartbeatInterval = setInterval(() => {
+        const streamUrl = currentCastState.current?.streamUrl;
+        if (streamUrl) {
+          fetch('/api/stream/keep-alive', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ streamUrl }),
+          }).catch(() => {});
+        }
+      }, 30000);
+
       return () => {
+        clearInterval(heartbeatInterval);
         document.removeEventListener('visibilitychange', handleVisibilityChange);
       };
     } else {
@@ -215,8 +228,9 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const castContext = castFramework.CastContext.getInstance();
     const chromeCast = window.chrome?.cast;
+    const activeAppId = settings?.castReceiverAppId?.trim() || APPLICATION_ID;
     castContext.setOptions({
-      receiverApplicationId: APPLICATION_ID,
+      receiverApplicationId: activeAppId,
       autoJoinPolicy: chromeCast?.AutoJoinPolicy?.ORIGIN_SCOPED || 1,
     });
 
@@ -277,6 +291,19 @@ export const CastProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     );
   };
+
+  useEffect(() => {
+    if (window.cast?.framework) {
+      try {
+        const castContext = window.cast.framework.CastContext.getInstance();
+        const activeAppId = settings?.castReceiverAppId?.trim() || APPLICATION_ID;
+        castContext.setOptions({
+          receiverApplicationId: activeAppId,
+          autoJoinPolicy: window.chrome?.cast?.AutoJoinPolicy?.ORIGIN_SCOPED || 1,
+        });
+      } catch {}
+    }
+  }, [settings?.castReceiverAppId]);
 
   const handleSessionStateChange = (event: cast.framework.SessionStateEventData) => {
     const castFramework = window.cast?.framework;

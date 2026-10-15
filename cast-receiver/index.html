@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ViniPlay Custom Cast Receiver</title>
+  <!-- Google Cast Application Framework (CAF) Receiver SDK -->
+  <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v1.0/cast_receiver_framework.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Ambient glow backdrop -->
+  <div class="ambient-glow"></div>
+
+  <!-- Discreet Receiver Label -->
+  <div class="receiver-badge">ViniPlay Cast v1.0</div>
+
+  <!-- Idle / Ready Splash Screen -->
+  <div id="splash">
+    <div class="logo-container">
+      <img src="assets/logo.svg" alt="ViniPlay Logo" />
+    </div>
+
+    <div class="status-badge">
+      <span class="status-dot"></span>
+      <span>Conectado e pronto para reproduzir</span>
+    </div>
+
+    <p class="helper-text">
+      Selecione um canal, filme ou série no seu dispositivo para assistir na TV.
+    </p>
+  </div>
+
+  <!-- Google Cast Media Player Component -->
+  <cast-media-player></cast-media-player>
+
+  <!-- Receiver Initialization Script -->
+  <script src="receiver.js"></script>
+</body>
+</html>

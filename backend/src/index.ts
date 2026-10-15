@@ -7,7 +7,7 @@ import session from 'express-session';
 import { ConnectSessionKnexStore } from 'connect-session-knex';
 import { env } from './config/env';
 import { db } from './db/connection';
-import { PUBLIC_DIR } from './config/paths';
+import { PUBLIC_DIR, CAST_RECEIVER_DIR } from './config/paths';
 import { requireAuth } from './middleware/auth';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { initializeLogSystem } from './services/logSystem';
@@ -155,6 +155,18 @@ app.use(express.static(PUBLIC_DIR, {
   },
 }));
 
+// Custom Cast Receiver static files
+app.use('/cast-receiver', express.static(CAST_RECEIVER_DIR, {
+  setHeaders: (res, filePath) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+    if (filePath.endsWith('index.html') || filePath.endsWith('.js')) {
+      res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    }
+  },
+}));
+app.get('/cast-receiver', (_req, res) => res.redirect(301, '/cast-receiver/'));
+
 // server.js:459 -- recorded files playback, not the DVR management API.
 app.use('/dvr', requireAuth, express.static(env.dvrDir));
 
@@ -187,6 +199,14 @@ app.use('/api', notFoundHandler);
 
 // server.js:5241-5247 -- SPA fallback, must be registered last.
 app.get('*', (req, res) => {
+  if (req.path.startsWith('/cast-receiver')) {
+    const rel = req.path.replace(/^\/cast-receiver\/?/, '');
+    const castFile = path.join(CAST_RECEIVER_DIR, rel || 'index.html');
+    if (fs.existsSync(castFile) && fs.lstatSync(castFile).isFile()) {
+      return res.sendFile(castFile);
+    }
+    return res.sendFile(path.join(CAST_RECEIVER_DIR, 'index.html'));
+  }
   const filePath = path.join(PUBLIC_DIR, req.path);
   if (fs.existsSync(filePath) && fs.lstatSync(filePath).isFile()) {
     return res.sendFile(filePath);

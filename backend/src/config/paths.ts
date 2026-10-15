@@ -10,6 +10,7 @@ export const SOURCES_DIR = path.join(DATA_DIR, 'sources');
 export const RAW_CACHE_DIR = path.join(SOURCES_DIR, 'raw_cache');
 export const LOGS_DIR = path.join(DATA_DIR, 'logs');
 export const PUBLIC_DIR = resolveFromRepoRoot('frontend', 'dist');
+export const CAST_RECEIVER_DIR = resolveFromRepoRoot('cast-receiver');
 export const LIVE_CHANNELS_M3U_PATH = path.join(DATA_DIR, 'live_channels.m3u');
 export const LIVE_EPG_JSON_PATH = path.join(DATA_DIR, 'epg.json');
 export const VOD_MOVIES_JSON_PATH = path.join(DATA_DIR, 'vod_movies.json');

@@ -31,6 +31,7 @@ RUN npm install
 COPY frontend ./frontend
 COPY backend ./backend
 COPY shared/types ./shared/types
+COPY cast-receiver ./cast-receiver
 
 # Build Frontend and Backend
 RUN npm run build -w @homeiptv/frontend
@@ -86,6 +87,7 @@ COPY shared/types/package*.json ./shared/types/
 COPY --from=builder /usr/src/app/frontend/dist ./frontend/dist
 COPY --from=builder /usr/src/app/backend/dist ./backend/dist
 COPY --from=builder /usr/src/app/shared/types ./shared/types
+COPY --from=builder /usr/src/app/cast-receiver ./cast-receiver
 
 EXPOSE 8998
 

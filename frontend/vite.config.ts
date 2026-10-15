@@ -25,6 +25,7 @@ export default defineConfig({
       '/api': backendTarget,
       '/stream': backendTarget,
       '/dvr': backendTarget,
+      '/cast-receiver': backendTarget,
     },
     watch: {
       ignored: ['**/node_modules/**'],

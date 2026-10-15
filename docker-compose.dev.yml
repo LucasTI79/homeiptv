@@ -48,8 +48,25 @@ services:
     env_file:
       - ./.env
 
+  caddy:
+    image: caddy:2-alpine
+    container_name: homeiptv-dev-caddy
+    restart: unless-stopped
+    environment:
+      - CADDY_UPSTREAM=homeiptv-dev:8999
+    ports:
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_dev_data:/data
+      - caddy_dev_config:/config
+    depends_on:
+      - homeiptv-dev
+
 volumes:
   homeiptv_dev_root_node_modules:
   homeiptv_dev_backend_node_modules:
   homeiptv_dev_frontend_node_modules:
   homeiptv_dev_shared_node_modules:
+  caddy_dev_data:
+  caddy_dev_config:

@@ -20,11 +20,20 @@ export const ProfilesTab: React.FC<ProfilesTabProps> = ({ settings }) => {
     settings?.activeCastProfileId || 'cast-default'
   );
 
+  const [castReceiverAppId, setCastReceiverAppId] = useState<string>(
+    settings?.castReceiverAppId || ''
+  );
+  const [streamInactivityTimeoutSeconds, setStreamInactivityTimeoutSeconds] = useState<number>(
+    settings?.streamInactivityTimeoutSeconds || 900
+  );
+
   const handleSaveActiveProfiles = () => {
     saveMutation.mutate(
       {
         activeStreamProfileId,
         activeCastProfileId,
+        castReceiverAppId: castReceiverAppId.trim(),
+        streamInactivityTimeoutSeconds: Number(streamInactivityTimeoutSeconds) || 900,
       },
       {
         onSuccess: () => {
@@ -202,6 +211,46 @@ export const ProfilesTab: React.FC<ProfilesTabProps> = ({ settings }) => {
                   {p.name} {p.id.includes('vaapi-amd') && hardware?.radeon_vaapi ? '★ (Matches your RX 7600 GPU)' : ''}
                 </option>
               ))}
+            </select>
+          </div>
+
+          {/* Google Cast Application ID */}
+          <div>
+            <label htmlFor="cast-receiver-app-id" className="text-sm font-semibold text-gray-200 flex items-center gap-2 mb-1.5">
+              <FiCast className="text-blue-400 w-4 h-4" /> Google Cast Application ID
+            </label>
+            <p className="text-xs text-gray-400 mb-2">
+              ID do Custom Web Receiver no Google Cast (deixe vazio para usar o padrão CC1AD845).
+            </p>
+            <input
+              id="cast-receiver-app-id"
+              type="text"
+              placeholder="CC1AD845 (Default Media Receiver)"
+              value={castReceiverAppId}
+              onChange={(e) => setCastReceiverAppId(e.target.value)}
+              className="bg-gray-900 border border-gray-700 rounded-lg px-3.5 py-2.5 text-sm text-white w-full focus:ring-2 focus:ring-blue-500 outline-none placeholder-gray-500 font-mono"
+            />
+          </div>
+
+          {/* Stream Inactivity Timeout */}
+          <div>
+            <label htmlFor="stream-inactivity-timeout" className="text-sm font-semibold text-gray-200 flex items-center gap-2 mb-1.5">
+              <FiRefreshCw className="text-blue-400 w-4 h-4" /> Tempo Limite de Inatividade (Janitor)
+            </label>
+            <p className="text-xs text-gray-400 mb-2">
+              Tempo de tolerância que o servidor mantém a stream ativa em pausa.
+            </p>
+            <select
+              id="stream-inactivity-timeout"
+              value={streamInactivityTimeoutSeconds}
+              onChange={(e) => setStreamInactivityTimeoutSeconds(Number(e.target.value))}
+              className="bg-gray-900 border border-gray-700 rounded-lg px-3.5 py-2.5 text-sm text-white w-full focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value={300}>5 minutos (300s)</option>
+              <option value={600}>10 minutos (600s)</option>
+              <option value={900}>15 minutos (900s - Recomendado)</option>
+              <option value={1800}>30 minutos (1800s)</option>
+              <option value={3600}>1 hora (3600s)</option>
             </select>
           </div>
         </div>

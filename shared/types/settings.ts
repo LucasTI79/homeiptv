@@ -108,4 +108,6 @@ export interface Settings {
   vodPlaybackEngine?: 'native' | 'mpegts';
   castMediaPort?: number;
   serverPort?: number;
+  castReceiverAppId?: string;
+  streamInactivityTimeoutSeconds?: number;
 }

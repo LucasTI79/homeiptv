@@ -64,6 +64,8 @@ export const defaultSettings: Settings = {
     autoDeleteDays: 7,
   },
   vodPlaybackEngine: 'native',
+  castReceiverAppId: 'CC1AD845',
+  streamInactivityTimeoutSeconds: 900,
 };
 
 // Ports getSettings()'s migration logic verbatim from server.js:701-920: fills
@@ -156,6 +158,16 @@ function migrate(settings: Settings): { settings: Settings; needsSave: boolean }
 
   if (!settings.localMediaFolders) {
     settings.localMediaFolders = [];
+    needsSave = true;
+  }
+
+  if (settings.castReceiverAppId === undefined) {
+    settings.castReceiverAppId = defaultSettings.castReceiverAppId;
+    needsSave = true;
+  }
+
+  if (settings.streamInactivityTimeoutSeconds === undefined) {
+    settings.streamInactivityTimeoutSeconds = defaultSettings.streamInactivityTimeoutSeconds;
     needsSave = true;
   }
 
